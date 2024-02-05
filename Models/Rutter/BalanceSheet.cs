@@ -7,7 +7,10 @@ using System.Threading.Tasks;
 namespace Sage50Connector.Models.Rutter
 {
     //BalanceSheet myDeserializedClass = JsonConvert.DeserializeObject<BalanceSheet>(myJsonResponse);
-
+    public class Test
+    {
+        public string ad { get; set; }  
+    }
     public class Assets
     {
         public string account_id { get; set; }
