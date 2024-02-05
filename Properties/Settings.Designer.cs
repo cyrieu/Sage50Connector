@@ -26,24 +26,24 @@ namespace Sage50Connector.Properties {
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
         [global::System.Configuration.DefaultSettingValueAttribute("")]
-        public string id {
+        public string logPath {
             get {
-                return ((string)(this["id"]));
+                return ((string)(this["logPath"]));
             }
             set {
-                this["id"] = value;
+                this["logPath"] = value;
             }
         }
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
         [global::System.Configuration.DefaultSettingValueAttribute("")]
-        public string platform {
+        public string sageCompany {
             get {
-                return ((string)(this["platform"]));
+                return ((string)(this["sageCompany"]));
             }
             set {
-                this["platform"] = value;
+                this["sageCompany"] = value;
             }
         }
         
@@ -110,30 +110,6 @@ namespace Sage50Connector.Properties {
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
         [global::System.Configuration.DefaultSettingValueAttribute("")]
-        public string sageCompany {
-            get {
-                return ((string)(this["sageCompany"]));
-            }
-            set {
-                this["sageCompany"] = value;
-            }
-        }
-        
-        [global::System.Configuration.UserScopedSettingAttribute()]
-        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("")]
-        public string logPath {
-            get {
-                return ((string)(this["logPath"]));
-            }
-            set {
-                this["logPath"] = value;
-            }
-        }
-        
-        [global::System.Configuration.UserScopedSettingAttribute()]
-        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("")]
         public string asset_account_types {
             get {
                 return ((string)(this["asset_account_types"]));
@@ -164,6 +140,30 @@ namespace Sage50Connector.Properties {
             }
             set {
                 this["equity_account_types"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("")]
+        public string id {
+            get {
+                return ((string)(this["id"]));
+            }
+            set {
+                this["id"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("")]
+        public string platform {
+            get {
+                return ((string)(this["platform"]));
+            }
+            set {
+                this["platform"] = value;
             }
         }
     }

@@ -1,4 +1,5 @@
-﻿using Sage.Peachtree.API;
+﻿using Microsoft.Win32;
+using Sage.Peachtree.API;
 using Sage50Connector.Helpers;
 using Sage50Connector.Models.Rutter;
 using System;
@@ -7,28 +8,33 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Runtime.Remoting.Contexts;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 
 namespace Sage50Connector
 {
-    internal class Program
+    public class Program
     {
-        static void Main(string[] args)
+        public static string CompanyName;
+        public static string AccessKey;
+        public static void Main()
         {
-            MainAsync(args).GetAwaiter().GetResult();
+            //string CompanyName = "Rutter";// GetFromRegistry("CompanyName");
+            MainAsync(AccessKey, CompanyName).GetAwaiter().GetResult();
         }
 
-        static async Task MainAsync(string[] args)
+        static async Task MainAsync(String AccessKey, String CompanyName)
         {
             // Read Accounts from Sage
+            
             WriteToFile("###############################--------####################################################################################");
             WriteToFile(DateTime.Now + $": Process Started");
-            var accounts = Sage50Repository.Instance.GetAccounts(Properties.Settings.Default.sageCompany);
+            var accounts = Sage50Repository.Instance.GetAccounts(CompanyName);
             if (accounts != null && accounts.Count > 0)
             {
-                WriteToFile(DateTime.Now + $": Fetched {accounts.Count} account(s) from Sage 50 Company: '{Properties.Settings.Default.sageCompany}'");
+                WriteToFile(DateTime.Now + $": Fetched {accounts.Count} account(s) from Sage 50 Company: '{CompanyName}'");
                 Connection connection = new Connection
                 {
                     Id = Properties.Settings.Default.id,
@@ -49,15 +55,15 @@ namespace Sage50Connector
             }
             else
             {
-                WriteToFile(DateTime.Now + $": No account(s) to read. Please ensure Agent has permissions to Sage Company '{Properties.Settings.Default.sageCompany}'");
+                WriteToFile(DateTime.Now + $": No account(s) to read. Please ensure Agent has permissions to Sage Company '{CompanyName}'");
             }
 
 
             int month = 1;
-            var balanceSheet = Sage50Repository.Instance.GetbBalanceSheet(Properties.Settings.Default.sageCompany, month, Properties.Settings.Default.asset_account_types, Properties.Settings.Default.liabilities_account_types, Properties.Settings.Default.equity_account_types);
+            var balanceSheet = Sage50Repository.Instance.GetbBalanceSheet(CompanyName, month, Properties.Settings.Default.asset_account_types, Properties.Settings.Default.liabilities_account_types, Properties.Settings.Default.equity_account_types);
             if (balanceSheet != null)
             {
-                WriteToFile(DateTime.Now + $": Fetched Balance Sheet of month '{month}' from Sage 50 Company: '{Properties.Settings.Default.sageCompany}'");
+                WriteToFile(DateTime.Now + $": Fetched Balance Sheet of month '{month}' from Sage 50 Company: '{CompanyName}'");
                 Connection connection = new Connection
                 {
                     Id = Properties.Settings.Default.id,
@@ -78,19 +84,19 @@ namespace Sage50Connector
             }
             else
             {
-                WriteToFile(DateTime.Now + $": No Balance Sheet to read. Please ensure Agent has permissions to Sage Company '{Properties.Settings.Default.sageCompany}'");
+                WriteToFile(DateTime.Now + $": No Balance Sheet to read. Please ensure Agent has permissions to Sage Company '{CompanyName}'");
             }
             WriteToFile(DateTime.Now + $": Process Ended.");
             WriteToFile("###################################################################################################################");
         }
 
-        private static async Task PostToRutterAsync(string jsonString)
+        private static async Task PostToRutterAsync(string jsonString,String AccessKey)
         {
 
             using (HttpClient client = new HttpClient())
             {
                 // Request URL
-                string url = $"{Properties.Settings.Default.base_url}/ingest?access_token={Properties.Settings.Default.access_token}";
+                string url = $"{Properties.Settings.Default.base_url}/ingest?access_token={AccessKey}";
 
                 // Configure headers
                 client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
@@ -145,6 +151,48 @@ namespace Sage50Connector
                     sw.WriteLine(Message);
                 }
             }
+        }
+
+        static string GetArgumentValue(string[] args, string argumentName)
+        {
+            foreach (var arg in args)
+            {
+                if (arg.StartsWith($"/{argumentName}=", StringComparison.OrdinalIgnoreCase))
+                {
+                    return arg.Substring(argumentName.Length + 2);
+                }
+            }
+
+            return null;
+        }
+        private static string GetFromRegistry(string keyName)
+        {
+            try
+            {
+                using (RegistryKey key = Registry.CurrentUser.OpenSubKey("SOFTWARE\\Sage\\Sage50Connector", false))
+                {
+                    var k = key;
+                    if (k != null)
+                    {
+                        // Retrieve the registry value
+                        object value = k.GetValue(keyName);
+
+                        // Check if the value is not null before returning
+                        if (value != null)
+                        {
+                            return value.ToString();
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                // Handle any exceptions that may occur during registry access
+                Console.WriteLine($"Error getting from registry: {ex.Message}");
+            }
+
+            // Return null if the value is not found or an error occurs
+            return null;
         }
     }
 }
