@@ -2,41 +2,44 @@
 <SettingsFile xmlns="http://schemas.microsoft.com/VisualStudio/2004/01/settings" CurrentProfile="(Default)" GeneratedClassNamespace="Sage50Connector.Properties" GeneratedClassName="Settings">
   <Profiles />
   <Settings>
+    <Setting Name="test" Type="System.String" Scope="User">
+      <Value Profile="(Default)">value</Value>
+    </Setting>
     <Setting Name="logPath" Type="System.String" Scope="User">
-      <Value Profile="(Default)" />
+      <Value Profile="(Default)">C:\Users\adeel\source\repos\Sage50Connector\Logs</Value>
     </Setting>
     <Setting Name="sageCompany" Type="System.String" Scope="User">
-      <Value Profile="(Default)" />
+      <Value Profile="(Default)">C:\sage\Peachtree\Company\Sample\PPA\BCS</Value>
     </Setting>
     <Setting Name="companyId" Type="System.String" Scope="User">
-      <Value Profile="(Default)" />
+      <Value Profile="(Default)">2e0f199b-7e6d-45c0-9c2c-3ddb87cab54b</Value>
     </Setting>
     <Setting Name="access_token" Type="System.String" Scope="User">
-      <Value Profile="(Default)" />
+      <Value Profile="(Default)">2e0f199b-7e6d-45c0-9c2c-3ddb87cab54b</Value>
     </Setting>
     <Setting Name="client_id" Type="System.String" Scope="User">
-      <Value Profile="(Default)" />
+      <Value Profile="(Default)">5715981f-b2ea-4578-af9e-e57cb12ac6c</Value>
     </Setting>
     <Setting Name="client_secret" Type="System.String" Scope="User">
-      <Value Profile="(Default)" />
+      <Value Profile="(Default)">production_pk_60aa6a21-e98e-4ccb-83dd-5887ff298d35</Value>
     </Setting>
     <Setting Name="base_url" Type="System.String" Scope="User">
-      <Value Profile="(Default)" />
+      <Value Profile="(Default)">production.rutterapi.com/versioned/ingest</Value>
     </Setting>
     <Setting Name="asset_account_types" Type="System.String" Scope="User">
-      <Value Profile="(Default)" />
+      <Value Profile="(Default)">AccumulatedDepreciation,Cash,CostSales,FixedAsset,Inventory,OtherAssets,OtherCurrentAsset,Receivable,ReceivableRetainage</Value>
     </Setting>
     <Setting Name="liabilities_account_types" Type="System.String" Scope="User">
-      <Value Profile="(Default)" />
+      <Value Profile="(Default)">OtherCurrentLiability,OtherLiability,Payable,PayableRetainage</Value>
     </Setting>
     <Setting Name="equity_account_types" Type="System.String" Scope="User">
-      <Value Profile="(Default)" />
+      <Value Profile="(Default)">EquityClose,EquityNoClose,Expense,Income,RetainedEarnings</Value>
     </Setting>
     <Setting Name="id" Type="System.String" Scope="User">
-      <Value Profile="(Default)" />
+      <Value Profile="(Default)">1</Value>
     </Setting>
     <Setting Name="platform" Type="System.String" Scope="User">
-      <Value Profile="(Default)" />
+      <Value Profile="(Default)">SAGE_50_US</Value>
     </Setting>
   </Settings>
 </SettingsFile>
