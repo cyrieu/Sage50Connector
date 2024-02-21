@@ -21,6 +21,16 @@ namespace Sage50Connector
         public static string AccessKey;
         public static void Main()
         {
+            if (CompanyName == null)
+            {
+                CompanyName = File.ReadAllText($"C:\\Users\\Default\\Documents\\sage50Config-CompanyName.txt");
+
+            }
+            if (AccessKey == null)
+            {
+                AccessKey = File.ReadAllText($"C:\\Users\\Default\\Documents\\sage50Config-AccessKey.txt");
+
+            }
             //string CompanyName = "Rutter";// GetFromRegistry("CompanyName");
             MainAsync(AccessKey, CompanyName).GetAwaiter().GetResult();
         }
@@ -60,7 +70,7 @@ namespace Sage50Connector
 
 
             int month = 1;
-            var balanceSheet = Sage50Repository.Instance.GetbBalanceSheet(CompanyName, month, Properties.Settings.Default.asset_account_types, Properties.Settings.Default.liabilities_account_types, Properties.Settings.Default.equity_account_types);
+            var balanceSheet =  Sage50Repository.Instance.GetbBalanceSheet(CompanyName, month, Properties.Settings.Default.asset_account_types, Properties.Settings.Default.liabilities_account_types, Properties.Settings.Default.equity_account_types);
             if (balanceSheet != null)
             {
                 WriteToFile(DateTime.Now + $": Fetched Balance Sheet of month '{month}' from Sage 50 Company: '{CompanyName}'");
