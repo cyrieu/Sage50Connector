@@ -1,4 +1,5 @@
 ﻿using Microsoft.Win32;
+using Newtonsoft.Json;
 using Sage.Peachtree.API;
 using Sage50Connector.Helpers;
 using Sage50Connector.Models.Rutter;
@@ -8,6 +9,7 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Net.NetworkInformation;
 using System.Runtime.Remoting.Contexts;
 using System.Text;
 using System.Text.Json;
@@ -19,13 +21,49 @@ namespace Sage50Connector
     {
         public static string CompanyName;
         public static string AccessKey;
+        public static string ConnectionId;
         public static void Main()
         {
-            //string CompanyName = "Rutter";// GetFromRegistry("CompanyName");
-            MainAsync(AccessKey, CompanyName).GetAwaiter().GetResult();
-        }
+            if (CompanyName == null)
+            {
+                string filePath = @"C:\Users\Default\Documents\sage50Config.json";
 
-        static async Task MainAsync(String AccessKey, String CompanyName)
+                string jsonString = File.ReadAllText(filePath);
+                CompanyName = GetValue(jsonString, "CompanyName");
+
+
+            }
+            if (AccessKey == null)
+            {
+                string filePath = @"C:\Users\Default\Documents\sage50Config.json";
+
+                string jsonString = File.ReadAllText(filePath);
+                AccessKey = GetValue(jsonString, "AccessKey");
+            }
+
+            if (ConnectionId == null)
+            {
+                string filePath = @"C:\Users\Default\Documents\sage50Config.json";
+
+                string jsonString = File.ReadAllText(filePath);
+                ConnectionId = GetValue(jsonString, "ConnectionId");
+            }
+
+            //string CompanyName = "Rutter";// GetFromRegistry("CompanyName");
+            MainAsync(AccessKey, CompanyName, ConnectionId ).GetAwaiter().GetResult();
+        }
+        static string GetValue(string jsonString, string key)
+        {
+            int keyIndex = jsonString.IndexOf("\"" + key + "\":") + key.Length + 3; // Adjust for quotes, colon, and potential spaces
+            int endIndex = jsonString.IndexOf(",", keyIndex);
+            if (endIndex == -1)
+            {
+                endIndex = jsonString.IndexOf("}", keyIndex);
+            }
+
+            return jsonString.Substring(keyIndex, endIndex - keyIndex);
+        }
+        static async Task MainAsync(String AccessKey, String CompanyName, string ConnectionId)
         {
             // Read Accounts from Sage
             
@@ -35,22 +73,26 @@ namespace Sage50Connector
             if (accounts != null && accounts.Count > 0)
             {
                 WriteToFile(DateTime.Now + $": Fetched {accounts.Count} account(s) from Sage 50 Company: '{CompanyName}'");
-                Connection connection = new Connection
+                string jsonString = JsonConvert.SerializeObject(new
                 {
-                    Id = Properties.Settings.Default.id,
-                    Platform = Properties.Settings.Default.platform,
-                    CompanyId = Properties.Settings.Default.companyId
-                };
-                string jsonString = JsonSerializer.Serialize(new
+                    connection = new
+                    {
+                        //id = Properties.Settings.Default.id,
+                        id = ConnectionId,
+                        platform = Properties.Settings.Default.platform,
+                        companyId = Properties.Settings.Default.companyId
+                    },
+                    entity = "ACCOUNTS",
+                    data = accounts
+                }, new JsonSerializerSettings
                 {
-                    Connection = connection,
-                    Entity = "accounts",
-                    Accounts = accounts
-                }, new JsonSerializerOptions { WriteIndented = true });
+                    ContractResolver = new Newtonsoft.Json.Serialization.CamelCasePropertyNamesContractResolver()
+                });
+
 
                 // This JSON string "jsonString" can be sent to the Rutter POST API 
                 WriteToFile(DateTime.Now + $": Posting {accounts.Count} account(s) to Rutter API");
-                //await PostToRutterAsync(jsonString);
+                await PostToRutterAsync(jsonString,AccessKey);
 
             }
             else
@@ -60,22 +102,24 @@ namespace Sage50Connector
 
 
             int month = 1;
-            var balanceSheet = Sage50Repository.Instance.GetbBalanceSheet(CompanyName, month, Properties.Settings.Default.asset_account_types, Properties.Settings.Default.liabilities_account_types, Properties.Settings.Default.equity_account_types);
+            var balanceSheet =  Sage50Repository.Instance.GetbBalanceSheet(CompanyName, month, Properties.Settings.Default.asset_account_types, Properties.Settings.Default.liabilities_account_types, Properties.Settings.Default.equity_account_types);
             if (balanceSheet != null)
             {
                 WriteToFile(DateTime.Now + $": Fetched Balance Sheet of month '{month}' from Sage 50 Company: '{CompanyName}'");
-                Connection connection = new Connection
+                string jsonString = JsonConvert.SerializeObject(new
                 {
-                    Id = Properties.Settings.Default.id,
-                    Platform = Properties.Settings.Default.platform,
-                    CompanyId = Properties.Settings.Default.companyId
-                };
-                string jsonString = JsonSerializer.Serialize(new
+                    connection = new Connection
+                    {
+                        id = Properties.Settings.Default.id,
+                        platform = Properties.Settings.Default.platform,
+                        companyId = Properties.Settings.Default.companyId
+                    },
+                    entity = "balancesheet",
+                    balanceSheet = balanceSheet
+                }, new JsonSerializerSettings
                 {
-                    Connection = connection,
-                    Entity = "balancesheet",
-                    BalanceSheet = balanceSheet
-                }, new JsonSerializerOptions { WriteIndented = true });
+                    ContractResolver = new Newtonsoft.Json.Serialization.CamelCasePropertyNamesContractResolver()
+                }); 
 
                 // This JSON string "jsonString" can be sent to the Rutter POST API 
                 WriteToFile(DateTime.Now + $": Posting Balance Sheet to Rutter API");
@@ -90,44 +134,31 @@ namespace Sage50Connector
             WriteToFile("###################################################################################################################");
         }
 
-        private static async Task PostToRutterAsync(string jsonString,String AccessKey)
+        private static async Task PostToRutterAsync(string jsonString, string AccessKey)
         {
-
             using (HttpClient client = new HttpClient())
             {
-                // Request URL
-                string url = $"{Properties.Settings.Default.base_url}/ingest?access_token={AccessKey}";
+                var request = new HttpRequestMessage(HttpMethod.Post, $"https://{Properties.Settings.Default.base_url}");
+                request.Headers.Add("X-Rutter-Version", "2023-03-14");
+                request.Headers.Add("Authorization", $"Bearer {AccessKey}");
+                StringContent content = new StringContent(jsonString, null, "application/json");
+                request.Content = content;
 
-                // Configure headers
-                client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                client.DefaultRequestHeaders.Add("X-Rutter-Version", "2023-03-14"); // Adding the X-Rutter-Version header
-
-                // Basic Authentication                
-                string authHeaderValue = Convert.ToBase64String(Encoding.ASCII.GetBytes($"{Properties.Settings.Default.client_id}:{Properties.Settings.Default.client_secret}"));
-                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", authHeaderValue);
-
-                // Create the request content
-                StringContent content = new StringContent(jsonString, Encoding.UTF8, "application/json");
-                var request = new HttpRequestMessage
-                {
-                    Method =  HttpMethod.Post,
-                    Content = content,
-                    RequestUri = new Uri(url),
-                };
                 // Send the POST request
-                HttpResponseMessage response = await client.PostAsync(url, content);
-                string responseBody = await response.Content.ReadAsStringAsync();
+                var response = await client.SendAsync(request);
+                response.EnsureSuccessStatusCode();
                 if (response.IsSuccessStatusCode)
                 {
-                    WriteToFile(DateTime.Now + $": Successfully posted to Rutter. Status code: {response.StatusCode} , Response: {responseBody}");                    
+                    WriteToFile(DateTime.Now + $": Successfully posted to Rutter. Status code: {response.StatusCode}, Response: {response.Content}");
                 }
                 else
                 {
-                    WriteToFile(DateTime.Now + $": Failed to post to Rutter. Status code: {response.StatusCode}, Response: {responseBody}");
-                }               
+                    WriteToFile(DateTime.Now + $": Failed to post to Rutter. Status code: {response.StatusCode}, Response: {response.Content}");
+                }
             }
         }
 
+        
         public static void WriteToFile(string Message)
         {
             string path = AppDomain.CurrentDomain.BaseDirectory + @"\Logs";

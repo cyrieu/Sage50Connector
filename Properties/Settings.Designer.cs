@@ -13,7 +13,7 @@ namespace Sage50Connector.Properties {
     
     [global::System.Runtime.CompilerServices.CompilerGeneratedAttribute()]
     [global::System.CodeDom.Compiler.GeneratedCodeAttribute("Microsoft.VisualStudio.Editors.SettingsDesigner.SettingsSingleFileGenerator", "17.6.0.0")]
-    internal sealed partial class Settings : global::System.Configuration.ApplicationSettingsBase {
+    public sealed partial class Settings : global::System.Configuration.ApplicationSettingsBase {
         
         private static Settings defaultInstance = ((Settings)(global::System.Configuration.ApplicationSettingsBase.Synchronized(new Settings())));
         
@@ -25,7 +25,19 @@ namespace Sage50Connector.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("")]
+        [global::System.Configuration.DefaultSettingValueAttribute("value")]
+        public string test {
+            get {
+                return ((string)(this["test"]));
+            }
+            set {
+                this["test"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("C:\\Users\\adeel\\source\\repos\\Sage50Connector\\Logs")]
         public string logPath {
             get {
                 return ((string)(this["logPath"]));
@@ -37,7 +49,7 @@ namespace Sage50Connector.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("")]
+        [global::System.Configuration.DefaultSettingValueAttribute("C:\\sage\\Peachtree\\Company\\Sample\\PPA\\BCS")]
         public string sageCompany {
             get {
                 return ((string)(this["sageCompany"]));
@@ -49,7 +61,7 @@ namespace Sage50Connector.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("")]
+        [global::System.Configuration.DefaultSettingValueAttribute("a3b9a083-b22f-4aeb-bce0-0b40566b56f0")]
         public string companyId {
             get {
                 return ((string)(this["companyId"]));
@@ -61,7 +73,7 @@ namespace Sage50Connector.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("")]
+        [global::System.Configuration.DefaultSettingValueAttribute("2e0f199b-7e6d-45c0-9c2c-3ddb87cab54b")]
         public string access_token {
             get {
                 return ((string)(this["access_token"]));
@@ -73,7 +85,7 @@ namespace Sage50Connector.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("")]
+        [global::System.Configuration.DefaultSettingValueAttribute("5db0cfd9-1935-46c6-ba63-dc161b01a2ad")]
         public string client_id {
             get {
                 return ((string)(this["client_id"]));
@@ -85,7 +97,7 @@ namespace Sage50Connector.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("")]
+        [global::System.Configuration.DefaultSettingValueAttribute("production_sk_bd99f0ef-28ef-4e00-9b42-ffdc829625f7")]
         public string client_secret {
             get {
                 return ((string)(this["client_secret"]));
@@ -97,7 +109,7 @@ namespace Sage50Connector.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("")]
+        [global::System.Configuration.DefaultSettingValueAttribute("production.rutterapi.com/versioned/ingest")]
         public string base_url {
             get {
                 return ((string)(this["base_url"]));
@@ -109,7 +121,8 @@ namespace Sage50Connector.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("")]
+        [global::System.Configuration.DefaultSettingValueAttribute("AccumulatedDepreciation,Cash,CostSales,FixedAsset,Inventory,OtherAssets,OtherCurr" +
+            "entAsset,Receivable,ReceivableRetainage")]
         public string asset_account_types {
             get {
                 return ((string)(this["asset_account_types"]));
@@ -121,7 +134,7 @@ namespace Sage50Connector.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("")]
+        [global::System.Configuration.DefaultSettingValueAttribute("OtherCurrentLiability,OtherLiability,Payable,PayableRetainage")]
         public string liabilities_account_types {
             get {
                 return ((string)(this["liabilities_account_types"]));
@@ -133,7 +146,7 @@ namespace Sage50Connector.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("")]
+        [global::System.Configuration.DefaultSettingValueAttribute("EquityClose,EquityNoClose,Expense,Income,RetainedEarnings")]
         public string equity_account_types {
             get {
                 return ((string)(this["equity_account_types"]));
@@ -145,7 +158,7 @@ namespace Sage50Connector.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("")]
+        [global::System.Configuration.DefaultSettingValueAttribute("ccaaac29-c76c-41c4-8c79-c0cbfe370e81")]
         public string id {
             get {
                 return ((string)(this["id"]));
@@ -157,7 +170,7 @@ namespace Sage50Connector.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("")]
+        [global::System.Configuration.DefaultSettingValueAttribute("SAGE50")]
         public string platform {
             get {
                 return ((string)(this["platform"]));
