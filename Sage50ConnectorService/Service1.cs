@@ -29,13 +29,20 @@ namespace Sage50ConnectorService
             // Call the Proc.Main function immediately on service start
             //string CompanyName = Environment.GetEnvironmentVariable("CompanyName", EnvironmentVariableTarget.Machine);
             //var (accessKey, CompanyName) = GetFromConfigFile("C:\\Users\\RutterQuickbooks!\\Documents\\Sage\\config.json");
-            string CompanyName = File.ReadAllText($"C:\\Users\\Default\\Documents\\sage50Config-CompanyName.txt");
-            string AccessKey = File.ReadAllText($"C:\\Users\\Default\\Documents\\sage50Config-AccessKey.txt");
-            Sage50Connector.Program.CompanyName = CompanyName;
-            Sage50Connector.Program.AccessKey = AccessKey;
             Sage50Connector.Program.Main();
         }
+        static string GetValue(string jsonString, string key)
+        {
+            int keyIndex = jsonString.IndexOf("\"" + key + "\":") + key.Length + 3; // Adjust for quotes, colon, and potential spaces
+            int endIndex = jsonString.IndexOf(",", keyIndex);
+            if (endIndex == -1)
+            {
+                endIndex = jsonString.IndexOf("}", keyIndex);
+            }
 
+            return jsonString.Substring(keyIndex, endIndex - keyIndex);
+
+        }
         protected override void OnStop()
         {
             // Stop the timer when the service is stopped

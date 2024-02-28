@@ -8,8 +8,8 @@ namespace Sage50Connector.Models.Rutter
 {
     public class Connection
     {
-        public string Id { get; set; }
-        public string Platform { get; set; }
-        public string CompanyId { get; set; }
+        public string id { get; set; }
+        public string platform { get; set; }
+        public string companyId { get; set; }
     }
 }
