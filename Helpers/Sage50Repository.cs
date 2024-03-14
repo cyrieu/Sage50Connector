@@ -211,6 +211,60 @@ namespace Sage50Connector.Helpers
             }            
             return chartofAccounts;
         }
+        public List<ChartofVendor> GetVendors(string companyName)
+        {
+            List<ChartofVendor> chartofVendors = new List<ChartofVendor>();
+            if (CurrentCompanyDesconnected)
+            {
+                OpenCompany(companyName);
+            }
+            if (!CurrentCompanyDesconnected)
+            {
+                VendorList vendorList = CompanyManager.Instance.CurrentCompany.Factories.VendorFactory.List();
+                vendorList.Load();
+                foreach (Vendor vendor in vendorList)
+                {
+                    ChartofVendor chartofVendor = new ChartofVendor();
+                    chartofVendor.AccountNumber = vendor.AccountNumber;
+                    chartofVendor.Balance = vendor.Balance;
+                    chartofVendor.Category = vendor.Category;
+                    chartofVendor.Email = vendor.Email;
+                    chartofVendor.ID = vendor.ID;
+                    chartofVendor.IncludePurchaseRepresentativeOnEmailedForms = vendor.IncludePurchaseRepresentativeOnEmailedForms;
+                    chartofVendor.IsInactive = vendor.IsInactive;
+                    chartofVendor.LastInvoiceAmount = vendor.LastInvoiceAmount;
+                    chartofVendor.LastInvoiceDate = vendor.LastInvoiceDate;
+                    chartofVendor.LastPaymentAmount = vendor.LastPaymentAmount;
+                    chartofVendor.LastPaymentDate = vendor.LastPaymentDate;
+                    chartofVendor.Name = vendor.Name;
+                    chartofVendor.PaymentMethod = vendor.PaymentMethod;
+                    chartofVendor.ReplaceInventoryItemIDWithPartNumber = vendor.ReplaceInventoryItemIDWithPartNumber;
+                    chartofVendor.ReplaceInventoryItemIDWithUPC = vendor.ReplaceInventoryItemIDWithUPC;
+                    chartofVendor.ShipVia = vendor.ShipVia;
+                    chartofVendor.TaxIDNumber = vendor.TaxIDNumber;
+                    chartofVendor.Form1099Type = vendor.Form1099Type;
+                    chartofVendor.UseEmailToDeliverForms = vendor.UseEmailToDeliverForms;
+                    chartofVendor.UsingPaymentDefaults = vendor.UsingPaymentDefaults;
+                    chartofVendor.VendorSince = vendor.VendorSince;
+                    chartofVendor.WebSiteURL = vendor.WebSiteURL;
+                    chartofVendor.CashAccountReference = vendor.CashAccountReference;
+                    chartofVendor.Contacts = vendor.Contacts;
+                    chartofVendor.CustomFieldValues = vendor.CustomFieldValues;
+                    chartofVendor.ExpenseAccountReference = vendor.ExpenseAccountReference;
+                    chartofVendor.MailToContact = vendor.MailToContact;
+                    chartofVendor.PaymentsContact = vendor.PaymentsContact;
+                    chartofVendor.Terms = vendor.Terms;
+                    chartofVendor.PhoneNumbers = vendor.PhoneNumbers;
+                    chartofVendor.PurchaseOrdersContact = vendor.PurchaseOrdersContact;
+                    chartofVendor.PurchaseRepresentativeReference = vendor.PurchaseRepresentativeReference;
+                    chartofVendor.ShipmentsContact = vendor.ShipmentsContact;
+                    chartofVendor.LastSavedAt = vendor.LastSavedAt;
+
+                    chartofVendors.Add(chartofVendor);
+                }
+            }
+            return chartofVendors;
+        }
 
         public string VerifyCompanyAccess(int index)
         {

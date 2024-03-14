@@ -11,6 +11,7 @@ using System.Collections;
 using System.IO;
 using System.Threading;
 using System.Diagnostics;
+using Newtonsoft.Json;
 
 namespace Sage50ConnectorService
 {
@@ -25,49 +26,45 @@ namespace Sage50ConnectorService
         {
             InitializeComponent();
         }
-        private void SaveToConfigFile(string filePath, string accessKey, string companyName)
-        {
-            try
-            {
-                // Create a JSON object with the required values
-                var config = new { AccessKey = accessKey, CompanyName = companyName };
-
-                // Serialize the object to JSON and write to the file
-                string json = Newtonsoft.Json.JsonConvert.SerializeObject(config);
-                System.IO.File.WriteAllText(filePath, json);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error saving to config file: {ex.Message}");
-            }
-        }
-
-        // Call this during installation
+                // Call this during installation
         public override void Install(IDictionary stateSaver)
         {
             
-            StopService();
+            //StopService();
             base.Install(stateSaver);
+
 
             string accessKey = Context.Parameters["AccessKey"];
             string companyName = Context.Parameters["CompanyName"];
+            string connectionID = Context.Parameters["ConnectionID"];
             if (accessKey != "" && companyName != "")
             {
-                File.WriteAllText($"C:\\Users\\Default\\Documents\\sage50Config-CompanyName.txt", companyName);
-            File.WriteAllText($"C:\\Users\\Default\\Documents\\sage50Config-AccessKey.txt", accessKey);
-/*
-            Environment.SetEnvironmentVariable("AccessKey", accessKey, EnvironmentVariableTarget.Machine);
-            Environment.SetEnvironmentVariable("CompanyName", companyName, EnvironmentVariableTarget.Machine);
-            */
-            SaveToRegistry("AccessKey", accessKey);
-            SaveToRegistry("CompanyName", companyName);
+                var data = new
+                {
+                    CompanyName = companyName,
+                    AccessKey = accessKey,
+                    ConnectionID = connectionID
+                };
+
+                // Specify the file path
+                string filePath = @"C:\Users\Default\Documents\sage50Config.json";
+
+                // Serialize the data to JSON using Newtonsoft.Json
+                string jsonData = $"{{\"CompanyName\":{EscapeJsonString(companyName)},\"AccessKey\":{EscapeJsonString(accessKey)},\"ConnectionId\":{EscapeJsonString(connectionID)}}}";
+
+
+                // Write the JSON data to the file
+                File.WriteAllText(filePath, jsonData);
             }
             // Add code to save the data during the installation process
-            
+
             InstallService();
 
         }
-       
+       static string EscapeJsonString(string input)
+        {
+            return input.Replace("\\", "\\\\").Replace("\"", "\\\"");
+        }
         private void InstallService()
         {
 
@@ -134,14 +131,11 @@ namespace Sage50ConnectorService
         }
         public override void Uninstall(IDictionary savedState)
         {
-            StopService();
+            //StopService();
             base.Uninstall(savedState);
 
             // Add code to uninstall the service during uninstallation
-            RemoveFromRegistry("AccessKey");
-            RemoveFromRegistry("CompanyName");
-            RemoveService("Sage50ConnectorService");
-
+            
 
         }
 
