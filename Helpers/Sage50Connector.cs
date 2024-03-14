@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using Sage.Peachtree.API.Factories;
 
 namespace Sage50Connector.Helpers
 {
@@ -56,7 +57,7 @@ namespace Sage50Connector.Helpers
                 return m_peachtreeSession;
             }
         }
-
+        
         private static Sage50Connector m_Sage50Connector = null;
         public static Sage50Connector Instance
         {
@@ -110,7 +111,7 @@ namespace Sage50Connector.Helpers
                 // choose "Always Allow Access" for this application.  Once this has been done,
                 // the result should be "Granted" and we can continue to open the company.
                 authorizationResult = PeachtreeSession.RequestAccess(companyId, auth);
-
+                
                 return "Authorization result = " + authorizationResult.ToString();
             }
             catch (System.Exception ex)

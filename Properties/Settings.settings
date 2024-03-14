@@ -18,7 +18,7 @@
       <Value Profile="(Default)">2e0f199b-7e6d-45c0-9c2c-3ddb87cab54b</Value>
     </Setting>
     <Setting Name="client_id" Type="System.String" Scope="User">
-      <Value Profile="(Default)">5db0cfd9-1935-46c6-ba63-dc161b01a2ad</Value>
+      <Value Profile="(Default)">5db0cfd9-1935-46c6-ba63-dc161b01a2ae</Value>
     </Setting>
     <Setting Name="client_secret" Type="System.String" Scope="User">
       <Value Profile="(Default)">production_sk_bd99f0ef-28ef-4e00-9b42-ffdc829625f7</Value>
