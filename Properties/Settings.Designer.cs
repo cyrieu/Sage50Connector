@@ -12,7 +12,7 @@ namespace Sage50Connector.Properties {
     
     
     [global::System.Runtime.CompilerServices.CompilerGeneratedAttribute()]
-    [global::System.CodeDom.Compiler.GeneratedCodeAttribute("Microsoft.VisualStudio.Editors.SettingsDesigner.SettingsSingleFileGenerator", "17.5.0.0")]
+    [global::System.CodeDom.Compiler.GeneratedCodeAttribute("Microsoft.VisualStudio.Editors.SettingsDesigner.SettingsSingleFileGenerator", "17.6.0.0")]
     public sealed partial class Settings : global::System.Configuration.ApplicationSettingsBase {
         
         private static Settings defaultInstance = ((Settings)(global::System.Configuration.ApplicationSettingsBase.Synchronized(new Settings())));
@@ -61,7 +61,7 @@ namespace Sage50Connector.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("<REDACTED_ACCESS_TOKEN>")]
+        [global::System.Configuration.DefaultSettingValueAttribute("<REDACTED_COMPANY_ID>")]
         public string companyId {
             get {
                 return ((string)(this["companyId"]));
@@ -85,7 +85,7 @@ namespace Sage50Connector.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("5715981f-b2ea-4578-af9e-e57cb12ac6c")]
+        [global::System.Configuration.DefaultSettingValueAttribute("<REDACTED_CLIENT_ID>")]
         public string client_id {
             get {
                 return ((string)(this["client_id"]));
@@ -97,7 +97,7 @@ namespace Sage50Connector.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("production_pk_60aa6a21-e98e-4ccb-83dd-5887ff298d35")]
+        [global::System.Configuration.DefaultSettingValueAttribute("<REDACTED_PRODUCTION_CLIENT_SECRET>")]
         public string client_secret {
             get {
                 return ((string)(this["client_secret"]));
@@ -158,7 +158,7 @@ namespace Sage50Connector.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("1")]
+        [global::System.Configuration.DefaultSettingValueAttribute("<REDACTED_CONNECTION_ID>")]
         public string id {
             get {
                 return ((string)(this["id"]));
@@ -170,7 +170,7 @@ namespace Sage50Connector.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("SAGE_50_US")]
+        [global::System.Configuration.DefaultSettingValueAttribute("SAGE50")]
         public string platform {
             get {
                 return ((string)(this["platform"]));
