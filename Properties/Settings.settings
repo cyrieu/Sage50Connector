@@ -18,7 +18,7 @@
       <Value Profile="(Default)"><REDACTED_ACCESS_TOKEN></Value>
     </Setting>
     <Setting Name="client_id" Type="System.String" Scope="User">
-      <Value Profile="(Default)">5db0cfd9-1935-46c6-ba63-dc161b01a2ad</Value>
+      <Value Profile="(Default)"><REDACTED_CLIENT_ID></Value>
     </Setting>
     <Setting Name="client_secret" Type="System.String" Scope="User">
       <Value Profile="(Default)"><REDACTED_PRODUCTION_CLIENT_SECRET></Value>

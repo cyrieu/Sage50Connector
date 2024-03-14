@@ -85,7 +85,7 @@ namespace Sage50Connector.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("5db0cfd9-1935-46c6-ba63-dc161b01a2ad")]
+        [global::System.Configuration.DefaultSettingValueAttribute("<REDACTED_CLIENT_ID>")]
         public string client_id {
             get {
                 return ((string)(this["client_id"]));

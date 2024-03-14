@@ -70,6 +70,7 @@ namespace Sage50Connector
             WriteToFile("###############################--------####################################################################################");
             WriteToFile(DateTime.Now + $": Process Started");
             var accounts = Sage50Repository.Instance.GetAccounts(CompanyName);
+            var vendors = Sage50Repository.Instance.GetVendors(CompanyName);
             if (accounts != null && accounts.Count > 0)
             {
                 WriteToFile(DateTime.Now + $": Fetched {accounts.Count} account(s) from Sage 50 Company: '{CompanyName}'");
@@ -100,6 +101,35 @@ namespace Sage50Connector
                 WriteToFile(DateTime.Now + $": No account(s) to read. Please ensure Agent has permissions to Sage Company '{CompanyName}'");
             }
 
+            if (vendors != null && vendors.Count > 0)
+            {
+                WriteToFile(DateTime.Now + $": Fetched {vendors.Count} vendors(s) from Sage 50 Company: '{CompanyName}'");
+                string jsonString = JsonConvert.SerializeObject(new
+                {
+                    connection = new
+                    {
+                        //id = Properties.Settings.Default.id,
+                        id = ConnectionId,
+                        platform = Properties.Settings.Default.platform,
+                        companyId = Properties.Settings.Default.companyId
+                    },
+                    entity = "VENDORS",
+                    data = vendors
+                }, new JsonSerializerSettings
+                {
+                    ContractResolver = new Newtonsoft.Json.Serialization.CamelCasePropertyNamesContractResolver()
+                });
+
+
+                // This JSON string "jsonString" can be sent to the Rutter POST API 
+                WriteToFile(DateTime.Now + $": Posting {vendors.Count} vendors(s) to Rutter API");
+                await PostToRutterAsync(jsonString, AccessKey);
+
+            }
+            else
+            {
+                WriteToFile(DateTime.Now + $": No vendor(s) to read. Please ensure Agent has permissions to Sage Company '{CompanyName}'");
+            }
 
             int month = 1;
             var balanceSheet =  Sage50Repository.Instance.GetbBalanceSheet(CompanyName, month, Properties.Settings.Default.asset_account_types, Properties.Settings.Default.liabilities_account_types, Properties.Settings.Default.equity_account_types);
