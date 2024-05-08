@@ -265,7 +265,22 @@ namespace Sage50Connector.Helpers
             }
             return chartofVendors;
         }
-
+        public void CreateVendor(string companyName)
+        {
+            List<ChartofVendor> chartofVendors = new List<ChartofVendor>();
+            if (CurrentCompanyDesconnected)
+            {
+                OpenCompany(companyName);
+            }
+            if (!CurrentCompanyDesconnected)
+            {
+                Vendor v = CompanyManager.Instance.CurrentCompany.Factories.VendorFactory.Create();
+                v.AccountNumber = "Test_01";
+                v.ID = "Test01";
+                //v.Save();
+            }
+            
+        }
         public string VerifyCompanyAccess(int index)
         {
             return m_compManager.VerifySelectedCompanyAccess(index);
