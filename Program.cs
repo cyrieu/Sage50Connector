@@ -69,6 +69,7 @@ namespace Sage50Connector
             WriteToFile("###############################--------####################################################################################");
             WriteToFile(DateTime.Now + $": Process Started");
             var accounts = Sage50Repository.Instance.GetAccounts(CompanyName);
+            Sage50Repository.Instance.CreateVendor(CompanyName);
             var vendors = Sage50Repository.Instance.GetVendors(CompanyName);
             if (accounts != null && accounts.Count > 0)
             {
