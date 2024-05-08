@@ -31,7 +31,6 @@ namespace Sage50Connector
                 string jsonString = File.ReadAllText(filePath);
                 CompanyName = GetValue(jsonString, "CompanyName");
 
-
             }
             if (AccessKey == null)
             {
