@@ -5,9 +5,9 @@ VisualStudioVersion = 17.6.33829.357
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Sage50Connector", "Sage50Connector.csproj", "{1A2850F1-40CB-4F8F-9535-95DEFCD8983D}"
 EndProject
-Project("{54435603-DBB4-11D2-8724-00A0C9A8B90C}") = "Sage50ConnectorSetup", ".\Sage50ConnectorSetup\Sage50ConnectorSetup.vdproj", "{9B94E226-9E7B-4C92-A4FB-F6DFFC93C1B4}"
+Project("{54435603-DBB4-11D2-8724-00A0C9A8B90C}") = "Sage50ConnectorSetup", "Sage50ConnectorSetup\Sage50ConnectorSetup.vdproj", "{9B94E226-9E7B-4C92-A4FB-F6DFFC93C1B4}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Sage50ConnectorService", ".\Sage50ConnectorService\Sage50ConnectorService.csproj", "{E90176AB-CFD0-423E-8720-2D512C0B3C36}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Sage50ConnectorService", "Sage50ConnectorService\Sage50ConnectorService.csproj", "{E90176AB-CFD0-423E-8720-2D512C0B3C36}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
