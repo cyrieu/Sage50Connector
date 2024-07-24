@@ -101,9 +101,11 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Helpers\CompanyManager.cs" />
+    <Compile Include="Helpers\GlobalFunctions.cs" />
     <Compile Include="Helpers\Sage50Connector.cs" />
     <Compile Include="Helpers\Sage50Repository.cs" />
     <Compile Include="Models\Rutter\BalanceSheet.cs" />
+    <Compile Include="Models\Rutter\ChartofCustomer.cs" />
     <Compile Include="Models\Rutter\ChartofVendor.cs" />
     <Compile Include="Models\Rutter\ChartofAccount.cs" />
     <Compile Include="Models\Rutter\Connection.cs" />
