@@ -4,7 +4,7 @@ using Sage50Connector.Models.Rutter;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text.Json;
+using System.Reflection;
 
 namespace Sage50Connector.Helpers
 {
@@ -30,11 +30,7 @@ namespace Sage50Connector.Helpers
         {
             get
             {
-                if (Sage50Connector.Instance.CurrentCompany == null)
-                {
-                    return true;
-                }
-                return false;
+                return Sage50Connector.Instance.CurrentCompany == null;
             }
         }
         public string CurrentCompanyName
@@ -76,58 +72,24 @@ namespace Sage50Connector.Helpers
 
         public bool PostAccount(string companyName, ChartofAccount account) 
         {
-
             return false;
         }
 
-
         public ChartofAccount GetAccount(string companyName, string id)
         {
-            ChartofAccount chartofAccount = new ChartofAccount();
-            if (CurrentCompanyDesconnected)
-            {
-                OpenCompany(companyName);
-            }
-            if (CurrentCompanyDesconnected == false)
-            {
-                AccountList glList = CompanyManager.Instance.CurrentCompany.Factories.AccountFactory.List();
-                FilterExpression filter = FilterExpression.Equal(
-                    FilterExpression.Property("Account.ID"),
-                    FilterExpression.Constant(id));
-
-                LoadModifiers modifiers = LoadModifiers.Create();
-                modifiers.Filters = filter;
-                glList.Load(modifiers);
-
-                foreach (Account account in glList)
-                {
-                    chartofAccount.ID = account.ID;
-                    chartofAccount.Description = account.Description;
-                    chartofAccount.IsInactive = account.IsInactive;
-                    chartofAccount.Classification = account.Classification.ToString();
-                   
-                }
-            }
-            return chartofAccount;
+            return GetEntityFromPath<ChartofAccount>(companyName, "CompanyManager.Instance.CurrentCompany.Factories.AccountFactory.List()", id);
         }
 
         public BalanceSheet GetbBalanceSheet(string companyName, int month, string assets_Accounts, string liability_Accounts, string equity_Accounts)
         {
-            //where acct.Classification == AccountClassification.Cash
             string[] assetTypesArray = assets_Accounts.Split(',');
             string[] liabilityTypesArray = liability_Accounts.Split(',');
             string[] equityTypesArray = equity_Accounts.Split(',');
-            //AccountList acctList = CompanyManager.Instance.CurrentCompany.Factories.AccountFactory.List();
-            //acctList.Load();
-            
-              
             
             BalanceSheet balanceSheet = new BalanceSheet();
-            if (CurrentCompanyDesconnected)
-            {
-                OpenCompany(companyName);
-            }
-            if (CurrentCompanyDesconnected == false)
+            EnsureCompanyConnected(companyName);
+            
+            if (!CurrentCompanyDesconnected)
             {
                 DateTime lastDayOfMonth = new DateTime(DateTime.Now.Year, month, DateTime.DaysInMonth(DateTime.Now.Year, month));
                 AccountList acctList = CompanyManager.Instance.CurrentCompany.Factories.AccountFactory.List();
@@ -157,21 +119,27 @@ namespace Sage50Connector.Helpers
                                                       value = acct.GetEndingBalance(lastDayOfMonth),
                                                   }).ToList();
 
-                Liabilities liabilities = new Liabilities();
-                liabilities.account_id = "1";
-                liabilities.name = "Liabilities";
-                liabilities.value = liabilityAccounts.Sum(item => item.value);
-                liabilities.items = liabilityAccounts;
-                Assets assets = new Assets();
-                assets.account_id = "1";
-                assets.name = "Assets";
-                assets.value = assetAccounts.Sum(item => item.value);
-                assets.items = assetAccounts;
-                Equity equity = new Equity();
-                equity.account_id = "1";
-                equity.name = "Equity";
-                equity.value = equityAccounts.Sum(item => item.value);
-                equity.items = equityAccounts;
+                Liabilities liabilities = new Liabilities
+                {
+                    account_id = "1",
+                    name = "Liabilities",
+                    value = liabilityAccounts.Sum(item => item.value),
+                    items = liabilityAccounts
+                };
+                Assets assets = new Assets
+                {
+                    account_id = "1",
+                    name = "Assets",
+                    value = assetAccounts.Sum(item => item.value),
+                    items = assetAccounts
+                };
+                Equity equity = new Equity
+                {
+                    account_id = "1",
+                    name = "Equity",
+                    value = equityAccounts.Sum(item => item.value),
+                    items = equityAccounts
+                };
                 balanceSheet.id = "1";
                 balanceSheet.assets = assets;
                 balanceSheet.equity = equity;
@@ -188,102 +156,304 @@ namespace Sage50Connector.Helpers
             return balanceSheet;
         }
 
-        public List<ChartofAccount> GetAccounts(string companyName) 
+        public List<ChartofAccount> GetAccounts(string companyName)
         {
-            List<ChartofAccount> chartofAccounts = new List<ChartofAccount>();
-            if (CurrentCompanyDesconnected)
+            EnsureCompanyConnected(companyName);
+            if (!CurrentCompanyDesconnected)
             {
-                OpenCompany(companyName);
-            }
-            if (CurrentCompanyDesconnected == false)
-            {                
-                AccountList glList = CompanyManager.Instance.CurrentCompany.Factories.AccountFactory.List();
-                glList.Load();
-                foreach (Account account in glList) 
+                AccountList acctList = CompanyManager.Instance.CurrentCompany.Factories.AccountFactory.List();
+                acctList.Load();
+                List<ChartofAccount> accounts = acctList.Select(acct => new ChartofAccount
                 {
-                    ChartofAccount chartofAccount = new ChartofAccount();
-                    chartofAccount.ID = account.ID;
-                    chartofAccount.Description = account.Description;
-                    chartofAccount.IsInactive = account.IsInactive;
-                    chartofAccount.Classification = account.Classification.ToString();
-                    chartofAccounts.Add(chartofAccount);
-                }                
-            }            
-            return chartofAccounts;
-        }
-        public List<ChartofVendor> GetVendors(string companyName)
-        {
-            List<ChartofVendor> chartofVendors = new List<ChartofVendor>();
-            if (CurrentCompanyDesconnected)
-            {
-                OpenCompany(companyName);
+                    ID = acct.ID,
+                    Description = acct.Description,
+                    Classification = acct.Classification.ToString(),
+                    IsInactive = acct.IsInactive,
+                    Key = acct.Key, // Assuming 'Guid' is the property name in the Account class
+                }).ToList();
+                return accounts;
             }
+            return new List<ChartofAccount>();
+        }
+
+        public List<ChartofVendor> GetVendors(string companyName, string updatedAt = null)
+        {
+            EnsureCompanyConnected(companyName);
             if (!CurrentCompanyDesconnected)
             {
                 VendorList vendorList = CompanyManager.Instance.CurrentCompany.Factories.VendorFactory.List();
                 vendorList.Load();
-                foreach (Vendor vendor in vendorList)
-                {
-                    ChartofVendor chartofVendor = new ChartofVendor();
-                    chartofVendor.AccountNumber = vendor.AccountNumber;
-                    chartofVendor.Balance = vendor.Balance;
-                    chartofVendor.Category = vendor.Category;
-                    chartofVendor.Email = vendor.Email;
-                    chartofVendor.ID = vendor.ID;
-                    chartofVendor.IncludePurchaseRepresentativeOnEmailedForms = vendor.IncludePurchaseRepresentativeOnEmailedForms;
-                    chartofVendor.IsInactive = vendor.IsInactive;
-                    chartofVendor.LastInvoiceAmount = vendor.LastInvoiceAmount;
-                    chartofVendor.LastInvoiceDate = vendor.LastInvoiceDate;
-                    chartofVendor.LastPaymentAmount = vendor.LastPaymentAmount;
-                    chartofVendor.LastPaymentDate = vendor.LastPaymentDate;
-                    chartofVendor.Name = vendor.Name;
-                    chartofVendor.PaymentMethod = vendor.PaymentMethod;
-                    chartofVendor.ReplaceInventoryItemIDWithPartNumber = vendor.ReplaceInventoryItemIDWithPartNumber;
-                    chartofVendor.ReplaceInventoryItemIDWithUPC = vendor.ReplaceInventoryItemIDWithUPC;
-                    chartofVendor.ShipVia = vendor.ShipVia;
-                    chartofVendor.TaxIDNumber = vendor.TaxIDNumber;
-                    chartofVendor.Form1099Type = vendor.Form1099Type;
-                    chartofVendor.UseEmailToDeliverForms = vendor.UseEmailToDeliverForms;
-                    chartofVendor.UsingPaymentDefaults = vendor.UsingPaymentDefaults;
-                    chartofVendor.VendorSince = vendor.VendorSince;
-                    chartofVendor.WebSiteURL = vendor.WebSiteURL;
-                    chartofVendor.CashAccountReference = vendor.CashAccountReference;
-                    chartofVendor.Contacts = vendor.Contacts;
-                    chartofVendor.CustomFieldValues = vendor.CustomFieldValues;
-                    chartofVendor.ExpenseAccountReference = vendor.ExpenseAccountReference;
-                    chartofVendor.MailToContact = vendor.MailToContact;
-                    chartofVendor.PaymentsContact = vendor.PaymentsContact;
-                    chartofVendor.Terms = vendor.Terms;
-                    chartofVendor.PhoneNumbers = vendor.PhoneNumbers;
-                    chartofVendor.PurchaseOrdersContact = vendor.PurchaseOrdersContact;
-                    chartofVendor.PurchaseRepresentativeReference = vendor.PurchaseRepresentativeReference;
-                    chartofVendor.ShipmentsContact = vendor.ShipmentsContact;
-                    chartofVendor.LastSavedAt = vendor.LastSavedAt;
 
-                    chartofVendors.Add(chartofVendor);
+                DateTime? updatedAtDate = null;
+                if (!string.IsNullOrEmpty(updatedAt))
+                {
+                    updatedAtDate = DateTime.Parse(updatedAt);
                 }
+
+                List<ChartofVendor> chartofVendors = new List<ChartofVendor>();
+                foreach (var vendor in vendorList)
+                {
+                    if (updatedAtDate == null || vendor.LastSavedAt >= updatedAtDate)
+                    {
+                        chartofVendors.Add(new ChartofVendor
+                        {
+                            AccountNumber = vendor.AccountNumber,
+                            ID = vendor.ID,
+                            Name = vendor.Name,
+                            Email = vendor.Email,
+                            TaxIDNumber = vendor.TaxIDNumber,
+                            WebSiteURL = vendor.WebSiteURL,
+                            // Map other fields as necessary
+                        });
+                    }
+                }
+
+                return chartofVendors;
             }
-            return chartofVendors;
+            return new List<ChartofVendor>();
         }
-        public void CreateVendor(string companyName)
+
+        public List<ChartofCustomer> GetCustomers(string companyName, string updatedAt = null)
         {
-            List<ChartofVendor> chartofVendors = new List<ChartofVendor>();
-            if (CurrentCompanyDesconnected)
-            {
-                OpenCompany(companyName);
-            }
+            EnsureCompanyConnected(companyName);
             if (!CurrentCompanyDesconnected)
             {
-                Vendor v = CompanyManager.Instance.CurrentCompany.Factories.VendorFactory.Create();
-                v.AccountNumber = "Test_01";
-                v.ID = "Test01";
-                //v.Save();
+                CustomerList customerList = CompanyManager.Instance.CurrentCompany.Factories.CustomerFactory.List();
+                customerList.Load();
+
+                DateTime? updatedAtDate = null;
+                if (!string.IsNullOrEmpty(updatedAt))
+                {
+                    updatedAtDate = DateTime.Parse(updatedAt);
+                }
+
+                List<ChartofCustomer> chartofCustomers = new List<ChartofCustomer>();
+                foreach (var customer in customerList)
+                {
+                    if (updatedAtDate == null || customer.LastSavedAt >= updatedAtDate)
+                    {
+                        chartofCustomers.Add(new ChartofCustomer
+                        {
+                            ID = customer.ID,
+                            Name = customer.Name,
+                            Email = customer.Email,
+                            AccountNumber = customer.AccountNumber,
+                            WebSiteURL = customer.WebSiteURL,
+
+                            // Map other fields as necessary
+                        });
+                    }
+                }
+
+                return chartofCustomers;
             }
-            
+            return new List<ChartofCustomer>();
         }
-        public string VerifyCompanyAccess(int index)
+        public Vendor GetVendor(string companyName, string id)
         {
-            return m_compManager.VerifySelectedCompanyAccess(index);
+            return GetEntityFromPath<Vendor>(companyName, "CompanyManager.Instance.CurrentCompany.Factories.VendorFactory.List()", id);
         }
+
+        public bool UpdateVendor(string companyName, Vendor vendor)
+        {
+            return false;
+        }
+
+        public ChartofAccount CreateAccount(string companyName, ChartofAccount account)
+        {
+            EnsureCompanyConnected(companyName);
+            if (!CurrentCompanyDesconnected)
+            {
+                var accountFactory = CompanyManager.Instance.CurrentCompany.Factories.AccountFactory;
+                var newAccount = accountFactory.Create();
+                newAccount.ID = account.ID;
+                newAccount.Description = account.Description;
+                newAccount.Classification = (AccountClassification)Enum.Parse(typeof(AccountClassification), account.Classification);
+                newAccount.IsInactive = account.IsInactive;
+                newAccount.Save();
+                return account;
+            }
+            return null;
+        }
+        public VendorBody CreateVendor(string companyName, VendorBody vendorBody)
+        {
+            EnsureCompanyConnected(companyName);
+            if (!CurrentCompanyDesconnected)
+            {
+                var vendorFactory = CompanyManager.Instance.CurrentCompany.Factories.VendorFactory;
+                var newVendor = vendorFactory.Create();
+                newVendor.ID = vendorBody.ID;
+                newVendor.Name = vendorBody.Name;
+                newVendor.Email = vendorBody.Email;
+
+                //newVendor.ExpenseAccountReference = vendorBody.ExpenseAccountReference; 
+                try
+                {
+                    newVendor.Save(); // Save the vendor to Sage 50
+
+                    // Creating a ChartofVendor instance to return
+                    var createdVendor = new VendorBody
+                    {
+                        AccountNumber = newVendor.AccountNumber,
+                        ID = newVendor.ID,
+                        Name = newVendor.Name,
+                        Email = newVendor.Email,
+                        TaxIDNumber = newVendor.TaxIDNumber,
+                        WebSiteURL = newVendor.WebSiteURL
+                    };
+
+                    return createdVendor;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine(DateTime.Now + ": Error saving Vendor in Sage 50: " + ex.Message);
+                    throw; // Optionally rethrow the exception to handle it further up the call stack
+                };
+            }
+            return null;
+        }
+
+        public VendorBody GetVendorById(string companyName, string vendorId)
+        {
+            EnsureCompanyConnected(companyName);
+            if (!CurrentCompanyDesconnected)
+            {
+                var vendorFactory = CompanyManager.Instance.CurrentCompany.Factories.VendorFactory;
+                // Get the list of all vendors
+                var vendors = vendorFactory.List();
+
+                // Find the vendor with the matching ID
+                var vendor = vendors.FirstOrDefault(v => v.ID == vendorId);
+                if (vendor != null)
+                {
+                    return new VendorBody
+                    {
+                        AccountNumber = vendor.AccountNumber,
+                        ID = vendor.ID,
+                        Name = vendor.Name,
+                        Email = vendor.Email,
+                        TaxIDNumber = vendor.TaxIDNumber,
+                        WebSiteURL = vendor.WebSiteURL,
+                    };
+                }
+            }
+            return null;
+        }
+
+
+
+        public void VerifyCompanyAccess(int index)
+        {
+            if (index < 0 || index >= Companies.Count)
+            {
+                throw new ArgumentOutOfRangeException(nameof(index), "Company index is out of range.");
+            }
+        }
+        public T GetEntityFromPath<T>(string companyName, string path, string id = null)
+        {
+            EnsureCompanyConnected(companyName);
+            if (!CurrentCompanyDesconnected)
+            {
+                var entityList = GetListFromPath(path);
+                if(entityList != null)
+                {
+                    var filter = FilterExpression.Equal(FilterExpression.Property("ID"), FilterExpression.Constant(id));
+                    var modifiers = LoadModifiers.Create();
+                    modifiers.Filters = filter;
+                    entityList.Load(modifiers);
+                    foreach(var entity in entityList)
+                    {
+                        return (T)entity;
+                    }
+
+                }
+            }
+            return default;
+        }
+        public List<T> GetEntitiesFromPath<T>(string companyName, string path, string updatedAt = null)
+        {
+            EnsureCompanyConnected(companyName);
+            if (!CurrentCompanyDesconnected)
+            {
+                var entityList = GetListFromPath(path);
+                return entityList;
+            }
+            return new List<T>();
+        }
+
+        private dynamic GetListFromPath(string path)
+        {
+            var parts = path.Split('.');
+            object currentObject = typeof(CompanyManager); // Start with the CompanyManager type for static access
+
+            foreach (var part in parts)
+            {
+                if (part.Contains("()"))
+                {
+                    var methodName = part.TrimEnd('(', ')');
+                    MethodInfo methodInfo = currentObject is Type ? ((Type)currentObject).GetMethod(methodName) : currentObject.GetType().GetMethod(methodName);
+
+                    if (methodInfo == null)
+                    {
+                        throw new Exception($"Method {methodName} not found on {(currentObject is Type ? ((Type)currentObject).FullName : currentObject.GetType().FullName)}");
+                    }
+
+                    currentObject = methodInfo.Invoke(currentObject is Type ? null : currentObject, null);
+                }
+                else
+                {
+                    // It's a property or the initial class
+                    if (currentObject == typeof(CompanyManager))
+                    {
+                        // If it's the first part, it's a static class
+                        string currentNamespace = "Sage50Connector.Helpers";
+                        string typeName = $"{currentNamespace}.{part}";
+
+                        Type type = Type.GetType(typeName);
+
+                        if (type == null)
+                        {
+                            throw new Exception($"Type {typeName} not found.");
+                        }
+
+                        currentObject = type.GetProperty("Instance", BindingFlags.Static | BindingFlags.Public)?.GetValue(null);
+                        if (currentObject == null)
+                        {
+                            throw new Exception($"Static instance property not found for type {typeName}.");
+                        }
+                    }
+                    else
+                    {
+                        // Otherwise, it's a property
+                        PropertyInfo property = currentObject.GetType().GetProperty(part);
+
+                        if (property == null)
+                        {
+                            throw new Exception($"Property {part} not found on {currentObject.GetType().FullName}.");
+                        }
+
+                        currentObject = property.GetValue(currentObject);
+                        if (currentObject == null)
+                        {
+                            throw new Exception($"Property {part} returned null on {currentObject.GetType().FullName}.");
+                        }
+                    }
+                }
+            }
+
+            return currentObject;
+        }
+        public void EnsureCompanyConnected(string companyName)
+        {
+            if (CurrentCompanyDesconnected)
+            {
+                var errorMessage = OpenCompany(companyName);
+                if (CurrentCompanyDesconnected)
+                {
+                    throw new InvalidOperationException($"Error: {errorMessage}. Company is disconnected.");
+                }
+            }
+        }
+
     }
 }

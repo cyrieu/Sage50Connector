@@ -9,28 +9,28 @@ namespace Sage50Connector.Models.Rutter
 {
     public class ChartofVendor
     {
-        public string AccountNumber { get; set; }
-        public decimal Balance { get; set; }
-        public string Category { get; set; }
-        public string Email { get; set; }
-        public string ID { get; set; }
-        public bool IncludePurchaseRepresentativeOnEmailedForms { get; set; }
-        public bool IsInactive { get; set; }
-        public decimal LastInvoiceAmount { get; set; }
+        public string AccountNumber { get; set; } = "";
+        public decimal Balance { get; set; } = 0;
+        public string Category { get; set; } = "";
+        public string Email { get; set; } = "";
+        public string ID { get; set; } = "";
+        public bool IncludePurchaseRepresentativeOnEmailedForms { get; set; } = false;
+        public bool IsInactive { get; set; } = false;
+        public decimal LastInvoiceAmount { get; set; } = 0;
         public DateTime? LastInvoiceDate { get; set; }
-        public decimal LastPaymentAmount { get; set; }
+        public decimal LastPaymentAmount { get; set; } = 0;
         public DateTime? LastPaymentDate { get; set; }
-        public string Name { get; set; }
-        public string PaymentMethod { get; set; }
-        public bool ReplaceInventoryItemIDWithPartNumber { get; set; }
-        public bool ReplaceInventoryItemIDWithUPC { get; set; }
-        public string ShipVia { get; set; }
-        public string TaxIDNumber { get; set; }
-        public VendorForm1099Type Form1099Type { get; set; }
-        public bool UseEmailToDeliverForms { get; set; }
-        public bool UsingPaymentDefaults { get; set; }
+        public string Name { get; set; } = "";
+        public string PaymentMethod { get; set; } = "Check";
+        public bool ReplaceInventoryItemIDWithPartNumber { get; set; } = false;
+        public bool ReplaceInventoryItemIDWithUPC { get; set; } = false;
+        public string ShipVia { get; set; } = "None";
+        public string TaxIDNumber { get; set; } = "";
+        public VendorForm1099Type Form1099Type { get; set; } = VendorForm1099Type.None;
+        public bool UseEmailToDeliverForms { get; set; } = false;
+        public bool UsingPaymentDefaults { get; set; } = true;
         public DateTime? VendorSince { get; set; }
-        public string WebSiteURL { get; set; }
+        public string WebSiteURL { get; set; } = "";
         public EntityReference<Account> CashAccountReference { get; set; }
         public ContactList Contacts { get; set; }
         public CustomFieldValueCollection CustomFieldValues { get; set; }
