@@ -421,24 +421,21 @@ namespace Sage50Connector.Helpers
         {
             if (CurrentCompanyDisconnected)
             {
-                var errorMessage = OpenCompany(companyName);
-                var count = 0;
-                while (errorMessage == "Authorization result = Pending")
+                var openCompanyResponse = OpenCompany(companyName);
+                while (openCompanyResponse != "Success")
                 {
-                    Program.WriteToLogFile($"Waiting for authorization from company {companyName}. The Sage 50 Instance must be closed and reopened to re-trigger the prompt to give Authorization.");
+                    Program.WriteToLogFile($"Waiting for authorization from company {companyName}. The Sage 50 Instance must be closed and reopened to re-trigger the prompt to give Authorization. Response: {openCompanyResponse}");
                     Task.Delay(TimeSpan.FromSeconds(10)).GetAwaiter().GetResult();
-                    errorMessage = OpenCompany(companyName);
-
-                    if (count++ > 12) break;
+                    openCompanyResponse = OpenCompany(companyName);
                 }
 
                 if (CurrentCompanyDisconnected)
                 {
-                    throw new InvalidOperationException($"{errorMessage}. Company remains disconnected.");
+                    throw new InvalidOperationException($"{openCompanyResponse}. Company remains disconnected.");
                 }
             }
 
-            Program.WriteToLogFile($"Authorization from company {companyName} given.");
+            Program.WriteToLogFile($"Authorization from company {companyName} given, and the company is connected.");
         }
 
     }
