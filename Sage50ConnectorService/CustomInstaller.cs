@@ -16,7 +16,7 @@ using Newtonsoft.Json;
 namespace Sage50ConnectorService
 {
     [RunInstaller(true)]
-    
+
     public class MyServiceInstaller : Installer
     {
         private ServiceProcessInstaller serviceProcessInstaller;
@@ -32,26 +32,30 @@ namespace Sage50ConnectorService
         {
             base.Install(stateSaver);
 
-            var data = new
+            // If all parameters are empty, then we just keep the old values. Easy for testing
+            if (Context.Parameters["CompanyName"] != "" || Context.Parameters["AccessKey"] != "" || Context.Parameters["ConnectionID"] != "")
             {
-                CompanyName = Context.Parameters["CompanyName"],
-                AccessKey = Context.Parameters["AccessKey"],
-                ConnectionID = Context.Parameters["ConnectionID"]
-            };
+                var data = new
+                {
+                    CompanyName = Context.Parameters["CompanyName"],
+                    AccessKey = Context.Parameters["AccessKey"],
+                    ConnectionID = Context.Parameters["ConnectionID"]
+                };
 
-            // Specify the file path
-            string filePath = @"C:\Users\Default\Documents\Sage50\sage50Config.json";
+                // Specify the file path
+                string filePath = @"C:\Users\Default\Documents\Sage50\sage50Config.json";
 
-            // Serialize the data to JSON using Newtonsoft.Json
-            string jsonData = JsonConvert.SerializeObject(data, Formatting.Indented);
+                // Serialize the data to JSON using Newtonsoft.Json
+                string jsonData = JsonConvert.SerializeObject(data, Formatting.Indented);
 
-            // Write the JSON data to the file
-            File.WriteAllText(filePath, jsonData);
+                // Write the JSON data to the file
+                File.WriteAllText(filePath, jsonData);
+            }
 
             // Proceed with the service installation
             InstallService();
         }
-        
+
         private void InstallService()
         {
 
@@ -61,7 +65,7 @@ namespace Sage50ConnectorService
                 serviceController.Start();
             }
         }
-        
+
         private void RemoveService(string serviceName)
         {
             try
@@ -97,7 +101,7 @@ namespace Sage50ConnectorService
                 Console.WriteLine($"An error occurred: {ex.Message}");
             }
         }
-        
+
         private void StopService()
         {
             try
@@ -118,7 +122,7 @@ namespace Sage50ConnectorService
                 Console.WriteLine($"Error stopping service: {ex.Message}");
             }
         }
-        
+
         public override void Uninstall(IDictionary savedState)
         {
             //StopService();
@@ -178,7 +182,7 @@ namespace Sage50ConnectorService
                 Console.WriteLine($"Error removing from registry: {ex.Message}");
             }
         }
-        
+
         private void InitializeComponent()
         {
             // Create the ServiceProcessInstaller
@@ -198,14 +202,14 @@ namespace Sage50ConnectorService
             Installers.Add(serviceInstaller);
 
         }
-        
+
         private void ClearApplicationFolder()
         {
             try
             {
                 Thread.Sleep(3000);
                 string applicationFolder = "C:\\Program Files (x86)\\Sage\\Sage50ConnectorSetup";
-                
+
                 // Ensure the folder exists before trying to delete it
                 if (Directory.Exists(applicationFolder))
                 {
