@@ -30,42 +30,26 @@ namespace Sage50ConnectorService
         // Call this during installation
         public override void Install(IDictionary stateSaver)
         {
-            
-            //StopService();
             base.Install(stateSaver);
 
-
-            string accessKey = Context.Parameters["AccessKey"];
-            string companyName = Context.Parameters["CompanyName"];
-            string connectionID = Context.Parameters["ConnectionID"];
-            if (accessKey != "" && companyName != "")
+            var data = new
             {
-                var data = new
-                {
-                    CompanyName = companyName,
-                    AccessKey = accessKey,
-                    ConnectionID = connectionID
-                };
+                CompanyName = Context.Parameters["CompanyName"],
+                AccessKey = Context.Parameters["AccessKey"],
+                ConnectionID = Context.Parameters["ConnectionID"]
+            };
 
-                // Specify the file path
-                string filePath = @"C:\Users\Default\Documents\sage50Config.json";
+            // Specify the file path
+            string filePath = @"C:\Users\Default\Documents\Sage50\sage50Config.json";
 
-                // Serialize the data to JSON using Newtonsoft.Json
-                string jsonData = $"{{\"CompanyName\":{EscapeJsonString(companyName)},\"AccessKey\":{EscapeJsonString(accessKey)},\"ConnectionId\":{EscapeJsonString(connectionID)}}}";
+            // Serialize the data to JSON using Newtonsoft.Json
+            string jsonData = JsonConvert.SerializeObject(data, Formatting.Indented);
 
+            // Write the JSON data to the file
+            File.WriteAllText(filePath, jsonData);
 
-                // Write the JSON data to the file
-                File.WriteAllText(filePath, jsonData);
-            }
-            // Add code to save the data during the installation process
-
+            // Proceed with the service installation
             InstallService();
-
-        }
-       
-        static string EscapeJsonString(string input)
-        {
-            return input.Replace("\\", "\\\\").Replace("\"", "\\\"");
         }
         
         private void InstallService()

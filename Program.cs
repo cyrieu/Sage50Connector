@@ -14,9 +14,6 @@ using System.Threading.Tasks;
 
 namespace Sage50Connector
 {
-
-
-
     class ResponseObject
     {
         public string job { get; set; }
@@ -78,7 +75,7 @@ namespace Sage50Connector
             // Ensure the log directory exists
             Directory.CreateDirectory(LogDirectoryPath);
 
-            WriteToLogFile("###################################################################################################################");
+            WriteToLogFile("##########################################################################################################");
             WriteToLogFile("Process Started");
 
             if (CompanyName == null || AccessKey == null || ConnectionID == null)
@@ -370,8 +367,6 @@ namespace Sage50Connector
             }
         }
 
-
-
         private static async Task PostToRutterAsync(string jsonString, string AccessKey)
         {
             using (HttpClient client = new HttpClient())
@@ -394,8 +389,8 @@ namespace Sage50Connector
             }
         }
 
-        private static readonly object logLock = new object();
 
+        private static readonly object logLock = new object();
         public static void WriteToLogFile(string message)
         {
             string logMessage = DateTime.Now.ToString() + ": " + message;
