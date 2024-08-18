@@ -128,8 +128,8 @@ namespace Sage50Connector
                             }
                             break;
                         case "NOOP":
-                            WriteToLogFile("Received NOOP job, sleeping for 5 minutes.");
-                            await Task.Delay(TimeSpan.FromMinutes(5));
+                            WriteToLogFile("Received NOOP job, sleeping for 10 seconds.");
+                            await Task.Delay(TimeSpan.FromSeconds(10));
                             break;
                         default:
                             WriteToLogFile("Unknown job type: " + job.type);
