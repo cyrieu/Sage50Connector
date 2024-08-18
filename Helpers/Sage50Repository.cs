@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Threading.Tasks;
 
 namespace Sage50Connector.Helpers
 {
@@ -156,27 +157,29 @@ namespace Sage50Connector.Helpers
             return balanceSheet;
         }
 
-        public List<ChartofAccount> GetAccounts(string companyName)
+        public List<object> GetAccounts(string companyName, string updatedAt = null)
         {
             EnsureCompanyConnected(companyName);
             if (!CurrentCompanyDisconnected)
             {
-                AccountList acctList = CompanyManager.Instance.CurrentCompany.Factories.AccountFactory.List();
-                acctList.Load();
-                List<ChartofAccount> accounts = acctList.Select(acct => new ChartofAccount
+                AccountList accountList = CompanyManager.Instance.CurrentCompany.Factories.AccountFactory.List();
+                accountList.Load();
+
+                // TODO: implement updatedAt filter
+
+                List<object> accounts = new List<object>();
+                foreach (var account in accountList)
                 {
-                    ID = acct.ID,
-                    Description = acct.Description,
-                    Classification = acct.Classification.ToString(),
-                    IsInactive = acct.IsInactive,
-                    Key = acct.Key, // Assuming 'Guid' is the property name in the Account class
-                }).ToList();
+                    accounts.Add(account);
+                }
+
                 return accounts;
             }
-            return new List<ChartofAccount>();
+
+            throw new Exception("Company is disconnected");
         }
 
-        public List<ChartofVendor> GetVendors(string companyName, string updatedAt = null)
+        public List<object> GetVendors(string companyName, string updatedAt = null)
         {
             EnsureCompanyConnected(companyName);
             if (!CurrentCompanyDisconnected)
@@ -184,36 +187,21 @@ namespace Sage50Connector.Helpers
                 VendorList vendorList = CompanyManager.Instance.CurrentCompany.Factories.VendorFactory.List();
                 vendorList.Load();
 
-                DateTime? updatedAtDate = null;
-                if (!string.IsNullOrEmpty(updatedAt))
-                {
-                    updatedAtDate = DateTime.Parse(updatedAt);
-                }
+                // TODO: implement updatedAt filter
 
-                List<ChartofVendor> chartofVendors = new List<ChartofVendor>();
+                List<object> vendors = new List<object>();
                 foreach (var vendor in vendorList)
                 {
-                    if (updatedAtDate == null || vendor.LastSavedAt >= updatedAtDate)
-                    {
-                        chartofVendors.Add(new ChartofVendor
-                        {
-                            AccountNumber = vendor.AccountNumber,
-                            ID = vendor.ID,
-                            Name = vendor.Name,
-                            Email = vendor.Email,
-                            TaxIDNumber = vendor.TaxIDNumber,
-                            WebSiteURL = vendor.WebSiteURL,
-                            // Map other fields as necessary
-                        });
-                    }
+                    vendors.Add(vendor);
                 }
 
-                return chartofVendors;
+                return vendors;
             }
-            return new List<ChartofVendor>();
+
+            throw new Exception("Company is disconnected");
         }
 
-        public List<ChartofCustomer> GetCustomers(string companyName, string updatedAt = null)
+        public List<object> GetCustomers(string companyName, string updatedAt = null)
         {
             EnsureCompanyConnected(companyName);
             if (!CurrentCompanyDisconnected)
@@ -221,34 +209,20 @@ namespace Sage50Connector.Helpers
                 CustomerList customerList = CompanyManager.Instance.CurrentCompany.Factories.CustomerFactory.List();
                 customerList.Load();
 
-                DateTime? updatedAtDate = null;
-                if (!string.IsNullOrEmpty(updatedAt))
-                {
-                    updatedAtDate = DateTime.Parse(updatedAt);
-                }
+                // TODO: implement updatedAt filter
 
-                List<ChartofCustomer> chartofCustomers = new List<ChartofCustomer>();
+                List<object> customers = new List<object>();
                 foreach (var customer in customerList)
                 {
-                    if (updatedAtDate == null || customer.LastSavedAt >= updatedAtDate)
-                    {
-                        chartofCustomers.Add(new ChartofCustomer
-                        {
-                            ID = customer.ID,
-                            Name = customer.Name,
-                            Email = customer.Email,
-                            AccountNumber = customer.AccountNumber,
-                            WebSiteURL = customer.WebSiteURL,
-
-                            // Map other fields as necessary
-                        });
-                    }
+                    customers.Add(customer);
                 }
 
-                return chartofCustomers;
+                return customers;
             }
-            return new List<ChartofCustomer>();
+
+            throw new Exception("Company is disconnected");
         }
+
         public Vendor GetVendor(string companyName, string id)
         {
             return GetEntityFromPath<Vendor>(companyName, "CompanyManager.Instance.CurrentCompany.Factories.VendorFactory.List()", id);
@@ -443,16 +417,28 @@ namespace Sage50Connector.Helpers
 
             return currentObject;
         }
-        public void EnsureCompanyConnected(string companyName)
+        public async void EnsureCompanyConnected(string companyName)
         {
             if (CurrentCompanyDisconnected)
             {
                 var errorMessage = OpenCompany(companyName);
+                var count = 0;
+                while (errorMessage == "Authorization result = Pending")
+                {
+                    Program.WriteToLogFile($"Waiting for authorization from company {companyName}. The Sage 50 Instance must be closed and reopened to re-trigger the prompt to give Authorization.");
+                    Task.Delay(TimeSpan.FromSeconds(10)).GetAwaiter().GetResult();
+                    errorMessage = OpenCompany(companyName);
+
+                    if (count++ > 12) break;
+                }
+
                 if (CurrentCompanyDisconnected)
                 {
-                    throw new InvalidOperationException($"Error: {errorMessage}. Company is disconnected.");
+                    throw new InvalidOperationException($"{errorMessage}. Company remains disconnected.");
                 }
             }
+
+            Program.WriteToLogFile($"Authorization from company {companyName} given.");
         }
 
     }

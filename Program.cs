@@ -268,20 +268,13 @@ namespace Sage50Connector
             {
                 case "VENDORS":
                     var vendors = Sage50Repository.Instance.GetVendors(companyName, updatedAt);
-                    WriteToLogFile($"Retrieved {vendors.Count} vendors from Sage 50 before filtering.");
+                    WriteToLogFile($"Retrieved {vendors.Count} vendors from Sage 50.");
                     data = vendors.Cast<object>().ToList();
                     break;
                 case "ACCOUNTS":
-                    var accounts = Sage50Repository.Instance.GetAccounts(companyName).Select(account => new AccountBody
-                    {
-                        ID = account.ID,
-                        Description = account.Description,
-                        Classification = account.Classification,
-                        IsInactive = account.IsInactive,
-                        Key = account.Key
-                    }).Cast<object>().ToList();
+                    var accounts = Sage50Repository.Instance.GetAccounts(companyName, updatedAt);
                     WriteToLogFile($"Retrieved {accounts.Count} accounts from Sage 50.");
-                    data = accounts;
+                    data = accounts.Cast<object>().ToList();
                     break;
                 case "CUSTOMERS":
                     var customers = Sage50Repository.Instance.GetCustomers(companyName, updatedAt);
@@ -391,6 +384,7 @@ namespace Sage50Connector
 
 
         private static readonly object logLock = new object();
+        
         public static void WriteToLogFile(string message)
         {
             string logMessage = DateTime.Now.ToString() + ": " + message;
