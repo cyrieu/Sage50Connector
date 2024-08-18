@@ -26,7 +26,7 @@ namespace Sage50Connector.Helpers
                 return m_sage50repository;
             }
         }
-        public bool CurrentCompanyDesconnected
+        public bool CurrentCompanyDisconnected
         {
             get
             {
@@ -80,7 +80,7 @@ namespace Sage50Connector.Helpers
             return GetEntityFromPath<ChartofAccount>(companyName, "CompanyManager.Instance.CurrentCompany.Factories.AccountFactory.List()", id);
         }
 
-        public BalanceSheet GetbBalanceSheet(string companyName, int month, string assets_Accounts, string liability_Accounts, string equity_Accounts)
+        public BalanceSheet GetBalanceSheet(string companyName, int month, string assets_Accounts, string liability_Accounts, string equity_Accounts)
         {
             string[] assetTypesArray = assets_Accounts.Split(',');
             string[] liabilityTypesArray = liability_Accounts.Split(',');
@@ -89,7 +89,7 @@ namespace Sage50Connector.Helpers
             BalanceSheet balanceSheet = new BalanceSheet();
             EnsureCompanyConnected(companyName);
             
-            if (!CurrentCompanyDesconnected)
+            if (!CurrentCompanyDisconnected)
             {
                 DateTime lastDayOfMonth = new DateTime(DateTime.Now.Year, month, DateTime.DaysInMonth(DateTime.Now.Year, month));
                 AccountList acctList = CompanyManager.Instance.CurrentCompany.Factories.AccountFactory.List();
@@ -159,7 +159,7 @@ namespace Sage50Connector.Helpers
         public List<ChartofAccount> GetAccounts(string companyName)
         {
             EnsureCompanyConnected(companyName);
-            if (!CurrentCompanyDesconnected)
+            if (!CurrentCompanyDisconnected)
             {
                 AccountList acctList = CompanyManager.Instance.CurrentCompany.Factories.AccountFactory.List();
                 acctList.Load();
@@ -179,7 +179,7 @@ namespace Sage50Connector.Helpers
         public List<ChartofVendor> GetVendors(string companyName, string updatedAt = null)
         {
             EnsureCompanyConnected(companyName);
-            if (!CurrentCompanyDesconnected)
+            if (!CurrentCompanyDisconnected)
             {
                 VendorList vendorList = CompanyManager.Instance.CurrentCompany.Factories.VendorFactory.List();
                 vendorList.Load();
@@ -216,7 +216,7 @@ namespace Sage50Connector.Helpers
         public List<ChartofCustomer> GetCustomers(string companyName, string updatedAt = null)
         {
             EnsureCompanyConnected(companyName);
-            if (!CurrentCompanyDesconnected)
+            if (!CurrentCompanyDisconnected)
             {
                 CustomerList customerList = CompanyManager.Instance.CurrentCompany.Factories.CustomerFactory.List();
                 customerList.Load();
@@ -262,7 +262,7 @@ namespace Sage50Connector.Helpers
         public ChartofAccount CreateAccount(string companyName, ChartofAccount account)
         {
             EnsureCompanyConnected(companyName);
-            if (!CurrentCompanyDesconnected)
+            if (!CurrentCompanyDisconnected)
             {
                 var accountFactory = CompanyManager.Instance.CurrentCompany.Factories.AccountFactory;
                 var newAccount = accountFactory.Create();
@@ -278,7 +278,7 @@ namespace Sage50Connector.Helpers
         public VendorBody CreateVendor(string companyName, VendorBody vendorBody)
         {
             EnsureCompanyConnected(companyName);
-            if (!CurrentCompanyDesconnected)
+            if (!CurrentCompanyDisconnected)
             {
                 var vendorFactory = CompanyManager.Instance.CurrentCompany.Factories.VendorFactory;
                 var newVendor = vendorFactory.Create();
@@ -316,7 +316,7 @@ namespace Sage50Connector.Helpers
         public VendorBody GetVendorById(string companyName, string vendorId)
         {
             EnsureCompanyConnected(companyName);
-            if (!CurrentCompanyDesconnected)
+            if (!CurrentCompanyDisconnected)
             {
                 var vendorFactory = CompanyManager.Instance.CurrentCompany.Factories.VendorFactory;
                 // Get the list of all vendors
@@ -352,7 +352,7 @@ namespace Sage50Connector.Helpers
         public T GetEntityFromPath<T>(string companyName, string path, string id = null)
         {
             EnsureCompanyConnected(companyName);
-            if (!CurrentCompanyDesconnected)
+            if (!CurrentCompanyDisconnected)
             {
                 var entityList = GetListFromPath(path);
                 if(entityList != null)
@@ -373,7 +373,7 @@ namespace Sage50Connector.Helpers
         public List<T> GetEntitiesFromPath<T>(string companyName, string path, string updatedAt = null)
         {
             EnsureCompanyConnected(companyName);
-            if (!CurrentCompanyDesconnected)
+            if (!CurrentCompanyDisconnected)
             {
                 var entityList = GetListFromPath(path);
                 return entityList;
@@ -445,10 +445,10 @@ namespace Sage50Connector.Helpers
         }
         public void EnsureCompanyConnected(string companyName)
         {
-            if (CurrentCompanyDesconnected)
+            if (CurrentCompanyDisconnected)
             {
                 var errorMessage = OpenCompany(companyName);
-                if (CurrentCompanyDesconnected)
+                if (CurrentCompanyDisconnected)
                 {
                     throw new InvalidOperationException($"Error: {errorMessage}. Company is disconnected.");
                 }

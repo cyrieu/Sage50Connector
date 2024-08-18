@@ -14,6 +14,9 @@ using System.Threading.Tasks;
 
 namespace Sage50Connector
 {
+
+
+
     class ResponseObject
     {
         public string job { get; set; }
@@ -59,23 +62,41 @@ namespace Sage50Connector
 
     public class Program
     {
+
+        // Define the directory path as a constant since it doesn't change
+        private const string LogDirectoryPath = @"C:\Users\Default\Documents\Sage50";
+
+        // Create a file name with the timestamp
+        private const string LogFileName = "sage50logs.txt";
+
         public static string CompanyName;
         public static string AccessKey;
-        public static string ConnectionId;
+        public static string ConnectionID;
 
         public static void Main()
         {
-            if (CompanyName == null || AccessKey == null || ConnectionId == null)
+            // Ensure the log directory exists
+            Directory.CreateDirectory(LogDirectoryPath);
+
+            WriteToLogFile("###################################################################################################################");
+            WriteToLogFile("Process Started");
+
+            if (CompanyName == null || AccessKey == null || ConnectionID == null)
             {
-                string filePath = @"C:\Users\Default\Documents\sage50Config.json";
+                string filePath = @"C:\Users\Default\Documents\Sage50\sage50Config.json";
                 string jsonString = File.ReadAllText(filePath);
-                CompanyName = GetValue(jsonString, "CompanyName");
-                AccessKey = GetValue(jsonString, "AccessKey");
-                ConnectionId = GetValue(jsonString, "ConnectionId");
+                JObject json = JObject.Parse(jsonString);
+
+                CompanyName = (string)json["CompanyName"];
+                AccessKey = (string)json["AccessKey"];
+                ConnectionID = (string)json["ConnectionID"];
+
+                WriteToLogFile($"Read from config file {filePath} CompanyName: {CompanyName}");
+                WriteToLogFile($"Read from config file {filePath} ConnectionID: {ConnectionID}");
+                WriteToLogFile($"Read from config file {filePath} AccessKey: {AccessKey}");
             }
 
-            //string CompanyName = "Rutter";// GetFromRegistry("CompanyName");
-            MainAsync(AccessKey, CompanyName, ConnectionId).GetAwaiter().GetResult();
+            MainAsync(AccessKey, CompanyName, ConnectionID).GetAwaiter().GetResult();
         }
 
         static string GetValue(string jsonString, string key)
@@ -89,13 +110,12 @@ namespace Sage50Connector
 
             return jsonString.Substring(keyIndex, endIndex - keyIndex);
         }
-        static async Task MainAsync(string AccessKey, string CompanyName, string ConnectionId)
+
+        static async Task MainAsync(string AccessKey, string CompanyName, string ConnectionID)
         {
             while (true)
             {
-                WriteToFile("###############################--------####################################################################################");
-                WriteToFile(DateTime.Now + ": Process Started");
-                ResponseObject job = await GetJobFromRutterAsync(AccessKey);
+                ResponseObject job = await GetJobFromRutterAsync();
 
                 if (job != null)
                 {
@@ -111,25 +131,25 @@ namespace Sage50Connector
                             }
                             break;
                         case "NOOP":
-                            WriteToFile(DateTime.Now + ": Received NOOP job, sleeping for 5 minutes.");
+                            WriteToLogFile("Received NOOP job, sleeping for 5 minutes.");
                             await Task.Delay(TimeSpan.FromMinutes(5));
                             break;
                         default:
-                            WriteToFile(DateTime.Now + ": Unknown job type: " + job.type);
+                            WriteToLogFile("Unknown job type: " + job.type);
                             break;
                     }
                 }
                 else
                 {
-                    WriteToFile(DateTime.Now + ": No job available.");
+                    WriteToLogFile("No job available.");
                     break;
                 }
-                WriteToFile(DateTime.Now + ": Process Ended.");
-                WriteToFile("###################################################################################################################");
+                WriteToLogFile("Process Ended.");
+                WriteToLogFile("##########################################################################################################");
             }
         }
 
-        private static async Task<ResponseObject> GetJobFromRutterAsync(string AccessKey)
+        private static async Task<ResponseObject> GetJobFromRutterAsync()
         {
             using (HttpClient client = new HttpClient())
             {
@@ -141,7 +161,7 @@ namespace Sage50Connector
                 {
                     connection = new
                     {
-                        id = ConnectionId
+                        id = ConnectionID
                     }
                 };
 
@@ -156,7 +176,7 @@ namespace Sage50Connector
                 else
                 {
                     var responseContent = await response.Content.ReadAsStringAsync();
-                    WriteToFile(DateTime.Now + $": Failed to fetch job from Rutter. Status code: {response.StatusCode}, Response: {responseContent}");
+                    WriteToLogFile($"Failed to fetch job from Rutter. Status code: {response.StatusCode}, Response: {responseContent}");
                     return null;
                 }
             }
@@ -164,7 +184,7 @@ namespace Sage50Connector
 
         private static async Task HandleListFetchJob(ResponseObject job, string AccessKey, string CompanyName)
         {
-            WriteToFile(DateTime.Now + ": Handling LIST_FETCH job for " + job.platform_entity);
+            WriteToLogFile("Handling LIST_FETCH job for " + job.platform_entity);
             try
             {
                 var updatedAt = job.parameters.updated_at;
@@ -172,12 +192,12 @@ namespace Sage50Connector
 
                 if (data != null && data.Count > 0)
                 {
-                    WriteToFile(DateTime.Now + ": Fetched " + data.Count + " " + job.platform_entity + "(s) from Sage 50 Company: '" + CompanyName + "'");
+                    WriteToLogFile("Fetched " + data.Count + " " + job.platform_entity + "(s) from Sage 50 Company: '" + CompanyName + "'");
                     var responseObject = new
                     {
                         connection = new
                         {
-                            id = ConnectionId
+                            id = ConnectionID
                         },
                         job_id = job.job_id,
                         type = job.type,
@@ -196,12 +216,12 @@ namespace Sage50Connector
                 }
                 else
                 {
-                    WriteToFile(DateTime.Now + ": No " + job.platform_entity + "(s) to read. Please ensure Agent has permissions to Sage Company '" + CompanyName + "'");
+                    WriteToLogFile("No " + job.platform_entity + "(s) to read. Please ensure Agent has permissions to Sage Company '" + CompanyName + "'");
                     var responseObject = new
                     {
                         connection = new
                         {
-                            id = ConnectionId
+                            id = ConnectionID
                         },
                         job_id = job.job_id,
                         type = job.type,
@@ -220,12 +240,12 @@ namespace Sage50Connector
             }
             catch (Exception ex)
             {
-                WriteToFile(DateTime.Now + ": Error handling LIST_FETCH job for " + job.platform_entity + ". Error: " + ex.Message);
+                WriteToLogFile("Error handling LIST_FETCH job for " + job.platform_entity + ". Error: " + ex.Message);
                 var errorObject = new
                 {
                     connection = new
                     {
-                        id = ConnectionId
+                        id = ConnectionID
                     },
                     job_id = job.job_id,
                     type = job.type,
@@ -244,14 +264,14 @@ namespace Sage50Connector
 
         private static List<object> GetEntityData(string entity, string companyName, string updatedAt)
         {
-            WriteToFile(DateTime.Now + $": Fetching {entity} data for company: {companyName} with updated_at: {updatedAt}");
+            WriteToLogFile($"Fetching {entity} data for company: {companyName} with updated_at: {updatedAt}");
             List<object> data = new List<object>();
 
             switch (entity)
             {
                 case "VENDORS":
                     var vendors = Sage50Repository.Instance.GetVendors(companyName, updatedAt);
-                    WriteToFile(DateTime.Now + $": Retrieved {vendors.Count} vendors from Sage 50 before filtering.");
+                    WriteToLogFile($"Retrieved {vendors.Count} vendors from Sage 50 before filtering.");
                     data = vendors.Cast<object>().ToList();
                     break;
                 case "ACCOUNTS":
@@ -263,29 +283,29 @@ namespace Sage50Connector
                         IsInactive = account.IsInactive,
                         Key = account.Key
                     }).Cast<object>().ToList();
-                    WriteToFile(DateTime.Now + $": Retrieved {accounts.Count} accounts from Sage 50.");
+                    WriteToLogFile($"Retrieved {accounts.Count} accounts from Sage 50.");
                     data = accounts;
                     break;
                 case "CUSTOMERS":
                     var customers = Sage50Repository.Instance.GetCustomers(companyName, updatedAt);
-                    WriteToFile(DateTime.Now + $": Retrieved {customers.Count} customers from Sage 50.");
+                    WriteToLogFile($"Retrieved {customers.Count} customers from Sage 50.");
                     data = customers.Cast<object>().ToList();
                     break;
                 default:
                     throw new ArgumentException("Unknown platform entity: " + entity);
             }
 
-            WriteToFile(DateTime.Now + $": Returning {data.Count} {entity}(s) after filtering.");
+            WriteToLogFile($"Returning {data.Count} {entity}(s) after filtering.");
             return data;
         }
 
         private static async Task HandleCreateVendorJob(ResponseObject job, string AccessKey, string companyName)
         {
-            WriteToFile(DateTime.Now + ": Handling CREATE job for VENDORS");
+            WriteToLogFile("Handling CREATE job for VENDORS");
             try
             {
                 var vendorBody = JsonConvert.DeserializeObject<VendorBody>(job.create_body.data.ToString());
-                WriteToFile(DateTime.Now + ": Creating Vendor in Sage 50: " + vendorBody.Name);
+                WriteToLogFile("Creating Vendor in Sage 50: " + vendorBody.Name);
 
                 // Create the vendor in Sage 50
                 var createdVendor = Sage50Repository.Instance.CreateVendor(companyName, vendorBody);
@@ -295,13 +315,13 @@ namespace Sage50Connector
                     var fetchedVendor = Sage50Repository.Instance.GetVendorById(companyName, createdVendor.ID);
                     if (fetchedVendor != null)
                     {
-                        WriteToFile(DateTime.Now + ": Created Vendor in Sage 50: " + fetchedVendor.Name);
+                        WriteToLogFile("Created Vendor in Sage 50: " + fetchedVendor.Name);
 
                         var responseObject = new
                         {
                             connection = new
                             {
-                                id = ConnectionId
+                                id = ConnectionID
                             },
                             job_id = job.job_id,
                             type = job.type,
@@ -318,22 +338,22 @@ namespace Sage50Connector
                     }
                     else
                     {
-                        WriteToFile(DateTime.Now + ": Failed to fetch the created vendor from Sage 50.");
+                        WriteToLogFile("Failed to fetch the created vendor from Sage 50.");
                     }
                 }
                 else
                 {
-                    WriteToFile(DateTime.Now + ": Failed to create vendor in Sage 50.");
+                    WriteToLogFile("Failed to create vendor in Sage 50.");
                 }
             }
             catch (Exception ex)
             {
-                WriteToFile(DateTime.Now + ": Error handling CREATE job for VENDORS. Error: " + ex.Message);
+                WriteToLogFile("Error handling CREATE job for VENDORS. Error: " + ex.Message);
                 var errorObject = new
                 {
                     connection = new
                     {
-                        id = ConnectionId
+                        id = ConnectionID
                     },
                     job_id = job.job_id,
                     type = job.type,
@@ -365,18 +385,18 @@ namespace Sage50Connector
                 if (!response.IsSuccessStatusCode)
                 {
                     var responseContent = await response.Content.ReadAsStringAsync();
-                    WriteToFile(DateTime.Now + $": Failed to post to Rutter. Status code: {response.StatusCode}, Response: {responseContent}");
+                    WriteToLogFile($"Failed to post to Rutter. Status code: {response.StatusCode}, Response: {responseContent}");
                 }
                 else
                 {
-                    WriteToFile(DateTime.Now + ": Successfully posted to Rutter.");
+                    WriteToLogFile("Successfully posted to Rutter.");
                 }
             }
         }
 
         private static readonly object logLock = new object();
 
-        public static void WriteToFile(string message)
+        public static void WriteToLogFile(string message)
         {
             string logMessage = DateTime.Now.ToString() + ": " + message;
             Console.WriteLine(logMessage);
@@ -384,7 +404,7 @@ namespace Sage50Connector
             // Ensure thread safety if the application becomes multi-threaded
             lock (logLock)
             {
-                using (StreamWriter writer = new StreamWriter("C:\\Users\\Default\\Documents\\log.txt", true))
+                using (StreamWriter writer = new StreamWriter(Path.Combine(LogDirectoryPath, LogFileName), true))
                 {
                     writer.WriteLine(logMessage);
                     writer.Close();
