@@ -294,8 +294,8 @@ namespace Sage50Connector
             WriteToLogFile("Handling CREATE job for VENDORS");
             try
             {
-                var vendorBody = JsonConvert.DeserializeObject<VendorBody>(job.create_body.data.ToString());
-                WriteToLogFile("Creating Vendor in Sage 50: " + vendorBody.Name);
+                var vendorBody = JsonConvert.DeserializeObject<dynamic>(job.create_body.data.ToString());
+                WriteToLogFile("Attempting to creating Vendor in Sage 50: " + vendorBody.Name);
 
                 // Create the vendor in Sage 50
                 var createdVendor = Sage50Repository.Instance.CreateVendor(companyName, vendorBody);
@@ -339,7 +339,7 @@ namespace Sage50Connector
             catch (Exception ex)
             {
                 WriteToLogFile("Error handling CREATE job for VENDORS. Error: " + ex.Message);
-                var errorObject = new
+                var rutterErrorObject = new
                 {
                     connection = new
                     {
@@ -351,7 +351,7 @@ namespace Sage50Connector
                     error_message = ex.Message
                 };
 
-                string jsonString = JsonConvert.SerializeObject(errorObject, new JsonSerializerSettings
+                string jsonString = JsonConvert.SerializeObject(rutterErrorObject, new JsonSerializerSettings
                 {
                     ContractResolver = new Newtonsoft.Json.Serialization.CamelCasePropertyNamesContractResolver()
                 });

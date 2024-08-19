@@ -249,42 +249,33 @@ namespace Sage50Connector.Helpers
             }
             return null;
         }
-        public VendorBody CreateVendor(string companyName, VendorBody vendorBody)
+       
+        public object CreateVendor(string companyName, object vendorBody)
         {
             EnsureCompanyConnected(companyName);
             if (!CurrentCompanyDisconnected)
             {
                 var vendorFactory = CompanyManager.Instance.CurrentCompany.Factories.VendorFactory;
                 var newVendor = vendorFactory.Create();
-                newVendor.ID = vendorBody.ID;
-                newVendor.Name = vendorBody.Name;
-                newVendor.Email = vendorBody.Email;
 
-                //newVendor.ExpenseAccountReference = vendorBody.ExpenseAccountReference; 
-                try
+                // Get all properties from vendorBody
+                var vendorBodyProperties = vendorBody.GetType().GetProperties();
+
+                // Loop through each property in vendorBody and set it on newVendor
+                foreach (var property in vendorBodyProperties)
                 {
-                    newVendor.Save(); // Save the vendor to Sage 50
-
-                    // Creating a ChartofVendor instance to return
-                    var createdVendor = new VendorBody
-                    {
-                        AccountNumber = newVendor.AccountNumber,
-                        ID = newVendor.ID,
-                        Name = newVendor.Name,
-                        Email = newVendor.Email,
-                        TaxIDNumber = newVendor.TaxIDNumber,
-                        WebSiteURL = newVendor.WebSiteURL
-                    };
-
-                    return createdVendor;
+                    var value = property.GetValue(vendorBody);
+                    // Set the value on newVendor directly, assuming the property exists and is writable
+                    newVendor.GetType().GetProperty(property.Name)?.SetValue(newVendor, value);
                 }
-                catch (Exception ex)
-                {
-                    Console.WriteLine(DateTime.Now + ": Error saving Vendor in Sage 50: " + ex.Message);
-                    throw; // Optionally rethrow the exception to handle it further up the call stack
-                };
+
+                newVendor.Save();
+
+                // Return the created vendor (optional, depending on your method's requirements)
+                return newVendor;
             }
-            return null;
+
+            throw new Exception("Company is disconnected");
         }
 
         public VendorBody GetVendorById(string companyName, string vendorId)
@@ -419,12 +410,19 @@ namespace Sage50Connector.Helpers
         }
         public async void EnsureCompanyConnected(string companyName)
         {
+            // TODO: this can probably be cleaned up
             if (CurrentCompanyDisconnected)
             {
                 var openCompanyResponse = OpenCompany(companyName);
+                var retriesAllowed = 1000;
                 while (openCompanyResponse != "Success")
                 {
-                    Program.WriteToLogFile($"Waiting for authorization from company {companyName}. The Sage 50 Instance must be closed and reopened to re-trigger the prompt to give Authorization. Response: {openCompanyResponse}");
+                    if (--retriesAllowed <= 0)
+                    {
+                        throw new InvalidOperationException($"Authorization from company {companyName} not given. Retries exhausted.");
+                    }
+
+                    Program.WriteToLogFile($"Response: {openCompanyResponse}. Waiting for authorization from company {companyName}. The Sage 50 Instance must be closed and reopened to re-trigger the prompt to give Authorization. Retries left {retriesAllowed}");
                     Task.Delay(TimeSpan.FromSeconds(10)).GetAwaiter().GetResult();
                     openCompanyResponse = OpenCompany(companyName);
                 }
