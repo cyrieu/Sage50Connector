@@ -69,25 +69,27 @@ namespace Sage50Connector
             {
                 string filePath = @"C:\Users\Default\Documents\sage50Config.json";
                 string jsonString = File.ReadAllText(filePath);
-                CompanyName = GetValue(jsonString, "CompanyName");
-                AccessKey = GetValue(jsonString, "AccessKey");
-                ConnectionId = GetValue(jsonString, "ConnectionId");
+                JObject config = JObject.Parse(jsonString);
+                CompanyName = GetRequiredConfigValue(config, "CompanyName");
+                AccessKey = GetRequiredConfigValue(config, "AccessKey");
+                ConnectionId = GetRequiredConfigValue(config, "ConnectionId");
             }
 
             //string CompanyName = "Rutter";// GetFromRegistry("CompanyName");
             MainAsync(AccessKey, CompanyName, ConnectionId).GetAwaiter().GetResult();
         }
 
-        static string GetValue(string jsonString, string key)
+        private static string GetRequiredConfigValue(JObject config, string key)
         {
-            int keyIndex = jsonString.IndexOf("\"" + key + "\":") + key.Length + 3; // Adjust for quotes, colon, and potential spaces
-            int endIndex = jsonString.IndexOf(",", keyIndex);
-            if (endIndex == -1)
+            string value = config.Value<string>(key);
+            if (string.IsNullOrWhiteSpace(value))
             {
-                endIndex = jsonString.IndexOf("}", keyIndex);
+                throw new InvalidDataException(
+                    "sage50Config.json is missing required value: " + key
+                );
             }
 
-            return jsonString.Substring(keyIndex, endIndex - keyIndex);
+            return value;
         }
         static async Task MainAsync(string AccessKey, string CompanyName, string ConnectionId)
         {
