@@ -37,6 +37,14 @@ namespace Sage50Connector.Helpers
 
         #region properties/fields
 
+        /// <summary>
+        /// Sage-issued ApplicationIdentifier for this connector. An empty
+        /// identifier only allows access to Peachtree Sample companies; to
+        /// access real companies, the connector must present this token
+        /// (obtained from Sage; it is Rutter's license, not per-customer).
+        /// </summary>
+        private const string ApplicationIdentifier = "j6hHxkAHH31dLcZj3pr7KkJ97ZHBVp3A+yzPcdoPk0dWuW+npaRCig==qkaYdrdCJQAbSJSUCKFY3gdJByefMBYnYWKkyQP+QgvJKev4vbTCsMyaQM3SIy/g8coNs7zcZA8fzCqEbmclgtNp4AefrnrE+fOkJ+EPGJFgSwzZ019vNkKU79dMEWLQPSSm8KpqAspRKJrtxzoRfCW/KB2MlfgTe7i2vskOFM0wpA8RSXgXvBi/gOpnFX0o3ECrO0fEVN681li4DaIeITl3mjdMZazERXvWpibPxwM=";
+
         public Company CurrentCompany { get; set; }
 
         private PeachtreeSession m_peachtreeSession;
@@ -52,7 +60,7 @@ namespace Sage50Connector.Helpers
                     // Note: an empty ApplicationIdentifier will only allow access to Peachtree Sample companies.
                     // To access other companies, you must contact Sage to obtain a valid ApplicationIdentifier
                     //m_peachtreeSession.Begin(string.Empty);
-                    m_peachtreeSession.Begin("j6hHxkAHH31dLcZj3pr7KkJ97ZHBVp3A+yzPcdoPk0dWuW+npaRCig==qkaYdrdCJQAbSJSUCKFY3gdJByefMBYnYWKkyQP+QgvJKev4vbTCsMyaQM3SIy/g8coNs7zcZA8fzCqEbmclgtNp4AefrnrE+fOkJ+EPGJFgSwzZ019vNkKU79dMEWLQPSSm8KpqAspRKJrtxzoRfCW/KB2MlfgTe7i2vskOFM0wpA8RSXgXvBi/gOpnFX0o3ECrO0fEVN681li4DaIeITl3mjdMZazERXvWpibPxwM=");
+                    m_peachtreeSession.Begin(ApplicationIdentifier);
                 }
                 return m_peachtreeSession;
             }
@@ -104,7 +112,7 @@ namespace Sage50Connector.Helpers
                 // We will use the same string both for the description and the object.
                 Dictionary<string, object> auth = new Dictionary<string, object>();
                 auth[AuthenticationCredentialKey.SUPPLEMENTAL_DESCRIPTION] = Properties.Resources.ADDIN_TITLE;
-                auth[AuthenticationCredentialKey.SUPPLEMENTAL_OBJECT] = "j6hHxkAHH31dLcZj3pr7KkJ97ZHBVp3A+yzPcdoPk0dWuW+npaRCig==qkaYdrdCJQAbSJSUCKFY3gdJByefMBYnYWKkyQP+QgvJKev4vbTCsMyaQM3SIy/g8coNs7zcZA8fzCqEbmclgtNp4AefrnrE+fOkJ+EPGJFgSwzZ019vNkKU79dMEWLQPSSm8KpqAspRKJrtxzoRfCW/KB2MlfgTe7i2vskOFM0wpA8RSXgXvBi/gOpnFX0o3ECrO0fEVN681li4DaIeITl3mjdMZazERXvWpibPxwM=";
+                auth[AuthenticationCredentialKey.SUPPLEMENTAL_OBJECT] = ApplicationIdentifier;
 
                 // Request access to the company; if it is the first time, the return result will be
                 // "Pending". The Peachtree Administrator must then open the company in Peachtree and
@@ -185,7 +193,7 @@ namespace Sage50Connector.Helpers
                     // We will use the same string both for the description and the object.
                     Dictionary<string, object> auth = new Dictionary<string, object>();
                     auth[AuthenticationCredentialKey.SUPPLEMENTAL_DESCRIPTION] = Properties.Resources.ADDIN_TITLE;
-                    auth[AuthenticationCredentialKey.SUPPLEMENTAL_OBJECT] = "j6hHxkAHH31dLcZj3pr7KkJ97ZHBVp3A+yzPcdoPk0dWuW+npaRCig==qkaYdrdCJQAbSJSUCKFY3gdJByefMBYnYWKkyQP+QgvJKev4vbTCsMyaQM3SIy/g8coNs7zcZA8fzCqEbmclgtNp4AefrnrE+fOkJ+EPGJFgSwzZ019vNkKU79dMEWLQPSSm8KpqAspRKJrtxzoRfCW/KB2MlfgTe7i2vskOFM0wpA8RSXgXvBi/gOpnFX0o3ECrO0fEVN681li4DaIeITl3mjdMZazERXvWpibPxwM=";
+                    auth[AuthenticationCredentialKey.SUPPLEMENTAL_OBJECT] = ApplicationIdentifier;
 
                     // Request access to the company; if it is the first time, the return result will be
                     // "Pending". The Peachtree Administrator must then open the company in Peachtree and
