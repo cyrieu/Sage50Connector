@@ -42,4 +42,24 @@
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+  <!--
+    Pack the managed CA into an unmanaged SFX custom-action DLL that MSI can
+    load. VS/WiX "PackProject" does this for Votive builds; command-line
+    MSBuild needs an explicit MakeSfxCA step.
+  -->
+  <Target Name="PackCustomAction" AfterTargets="Build">
+    <PropertyGroup>
+      <WixSdkDir>$(MSBuildProgramFiles32)\WiX Toolset v3.11\SDK</WixSdkDir>
+      <MakeSfxCAExe>$(WixSdkDir)\MakeSfxCA.exe</MakeSfxCAExe>
+      <SfxCADll>$(WixSdkDir)\x86\sfxca.dll</SfxCADll>
+      <WindowsInstallerDll>$(WixSdkDir)\Microsoft.Deployment.WindowsInstaller.dll</WindowsInstallerDll>
+      <PackedCustomAction>$(TargetDir)$(TargetName).CA.dll</PackedCustomAction>
+    </PropertyGroup>
+    <Error Condition="!Exists('$(MakeSfxCAExe)')"
+           Text="MakeSfxCA.exe not found at '$(MakeSfxCAExe)'. Install WiX Toolset v3.11 SDK/build tools." />
+    <Error Condition="!Exists('$(SfxCADll)')"
+           Text="sfxca.dll not found at '$(SfxCADll)'." />
+    <Exec Command="&quot;$(MakeSfxCAExe)&quot; &quot;$(PackedCustomAction)&quot; &quot;$(SfxCADll)&quot; &quot;$(TargetPath)&quot; &quot;$(WindowsInstallerDll)&quot;" />
+    <Message Importance="high" Text="Packed custom action: $(PackedCustomAction)" />
+  </Target>
 </Project>
