@@ -72,69 +72,63 @@
                         Remove="uninstall"
                         Wait="yes" />
       </Component>
-      <!-- The console/provisioning tool (Sage50Connector.exe) -->
+      <!-- Console/provisioning tool + shared runtime deps come from the connector project
+           output (the service project does not copy all transitive packages.config deps). -->
       <Component Id="Sage50ConnectorExe" Guid="{EC37D31E-8776-4583-8FDA-DAFCA5A739C4}">
         <File Id="Sage50Connector.exe"
-              Source="$(var.Sage50ConnectorService.TargetDir)Sage50Connector.exe"
+              Source="$(var.Sage50Connector.TargetDir)Sage50Connector.exe"
               KeyPath="yes" />
       </Component>
       <Component Id="Sage50ConnectorServiceExeConfig" Guid="{44FA3286-1697-4BBC-963C-61CEA8B5C77A}">
         <File Id="Sage50ConnectorService.exe.config"
-              Source="$(var.Sage50ConnectorService.TargetDir)Sage50ConnectorService.exe.config"
-              KeyPath="yes" />
-      </Component>
-      <Component Id="Sage50ConnectorExeConfig" Guid="{50FD1FBF-AE25-4556-846B-0FA286976DBB}">
-        <File Id="Sage50Connector.exe.config"
-              Source="$(var.Sage50ConnectorService.TargetDir)Sage50Connector.exe.config"
+              Source="$(var.Sage50ConnectorService.ProjectDir)App.config"
+              Name="Sage50ConnectorService.exe.config"
               KeyPath="yes" />
       </Component>
       <Component Id="NewtonsoftJson" Guid="{1F2DA1C6-B49D-4255-9915-5C4235633D57}">
-        <File Id="Newtonsoft.Json.dll" Source="$(var.Sage50ConnectorService.TargetDir)Newtonsoft.Json.dll" KeyPath="yes" />
+        <File Id="Newtonsoft.Json.dll" Source="$(var.Sage50Connector.TargetDir)Newtonsoft.Json.dll" KeyPath="yes" />
       </Component>
       <Component Id="SagePeachtreeApi" Guid="{68D97B2B-D0F0-4D71-8334-BFD532CF5F32}">
-        <File Id="Sage.Peachtree.API.dll" Source="$(var.Sage50ConnectorService.TargetDir)Sage.Peachtree.API.dll" KeyPath="yes" />
+        <File Id="Sage.Peachtree.API.dll" Source="$(var.Sage50Connector.TargetDir)Sage.Peachtree.API.dll" KeyPath="yes" />
       </Component>
       <Component Id="SagePeachtreeApiResolver" Guid="{22F64079-896B-4789-98FC-01FDC6D48173}">
-        <File Id="Sage.Peachtree.API.Resolver.dll" Source="$(var.Sage50ConnectorService.TargetDir)Sage.Peachtree.API.Resolver.dll" KeyPath="yes" />
+        <File Id="Sage.Peachtree.API.Resolver.dll" Source="$(var.Sage50Connector.TargetDir)Sage.Peachtree.API.Resolver.dll" KeyPath="yes" />
       </Component>
       <Component Id="BclAsyncInterfaces" Guid="{4D35751C-6120-437F-922F-506D65008C90}">
-        <File Id="Microsoft.Bcl.AsyncInterfaces.dll" Source="$(var.Sage50ConnectorService.TargetDir)Microsoft.Bcl.AsyncInterfaces.dll" KeyPath="yes" />
+        <File Id="Microsoft.Bcl.AsyncInterfaces.dll" Source="$(var.Sage50Connector.TargetDir)Microsoft.Bcl.AsyncInterfaces.dll" KeyPath="yes" />
       </Component>
       <Component Id="SystemBuffers" Guid="{2040A69E-5DBE-47C2-8146-83B0B67DD131}">
-        <File Id="System.Buffers.dll" Source="$(var.Sage50ConnectorService.TargetDir)System.Buffers.dll" KeyPath="yes" />
-      </Component>
-      <Component Id="SystemConfigurationInstall" Guid="{4A9649FD-598A-4731-A6F6-24AF4961BA38}">
-        <File Id="System.Configuration.Install.dll" Source="$(var.Sage50ConnectorService.TargetDir)System.Configuration.Install.dll" KeyPath="yes" />
+        <File Id="System.Buffers.dll" Source="$(var.Sage50Connector.TargetDir)System.Buffers.dll" KeyPath="yes" />
       </Component>
       <Component Id="SystemDiagnosticsEventLog" Guid="{10965190-ACA1-43B0-8936-445A9E94E660}">
-        <File Id="System.Diagnostics.EventLog.dll" Source="$(var.Sage50ConnectorService.TargetDir)System.Diagnostics.EventLog.dll" KeyPath="yes" />
+        <File Id="System.Diagnostics.EventLog.dll" Source="$(var.Sage50Connector.TargetDir)System.Diagnostics.EventLog.dll" KeyPath="yes" />
       </Component>
       <Component Id="SystemDiagnosticsPerformanceCounter" Guid="{0AE206B3-1DDB-4599-9FEA-B82EE44D53D4}">
-        <File Id="System.Diagnostics.PerformanceCounter.dll" Source="$(var.Sage50ConnectorService.TargetDir)System.Diagnostics.PerformanceCounter.dll" KeyPath="yes" />
+        <File Id="System.Diagnostics.PerformanceCounter.dll" Source="$(var.Sage50Connector.TargetDir)System.Diagnostics.PerformanceCounter.dll" KeyPath="yes" />
       </Component>
       <Component Id="SystemMemory" Guid="{312B9AD9-A212-4372-B04C-8439C8FDF89A}">
-        <File Id="System.Memory.dll" Source="$(var.Sage50ConnectorService.TargetDir)System.Memory.dll" KeyPath="yes" />
+        <File Id="System.Memory.dll" Source="$(var.Sage50Connector.TargetDir)System.Memory.dll" KeyPath="yes" />
       </Component>
       <Component Id="SystemNumericsVectors" Guid="{5D2E7BF4-520C-4D7E-8CCB-8C7A7A5FD662}">
-        <File Id="System.Numerics.Vectors.dll" Source="$(var.Sage50ConnectorService.TargetDir)System.Numerics.Vectors.dll" KeyPath="yes" />
+        <File Id="System.Numerics.Vectors.dll" Source="$(var.Sage50Connector.TargetDir)System.Numerics.Vectors.dll" KeyPath="yes" />
       </Component>
       <Component Id="SystemRuntimeCompilerServicesUnsafe" Guid="{221D8D40-E52C-459C-9F09-71110EFB6B05}">
-        <File Id="System.Runtime.CompilerServices.Unsafe.dll" Source="$(var.Sage50ConnectorService.TargetDir)System.Runtime.CompilerServices.Unsafe.dll" KeyPath="yes" />
+        <File Id="System.Runtime.CompilerServices.Unsafe.dll" Source="$(var.Sage50Connector.TargetDir)System.Runtime.CompilerServices.Unsafe.dll" KeyPath="yes" />
       </Component>
       <Component Id="SystemSecurityPrincipalWindows" Guid="{FA6C13EC-FA92-4598-BE75-B61D4851E2F3}">
-        <File Id="System.Security.Principal.Windows.dll" Source="$(var.Sage50ConnectorService.TargetDir)System.Security.Principal.Windows.dll" KeyPath="yes" />
+        <File Id="System.Security.Principal.Windows.dll" Source="$(var.Sage50Connector.TargetDir)System.Security.Principal.Windows.dll" KeyPath="yes" />
       </Component>
       <Component Id="SystemTextEncodingsWeb" Guid="{5EDB658C-6FA9-4CAC-8FD8-E6176277A244}">
-        <File Id="System.Text.Encodings.Web.dll" Source="$(var.Sage50ConnectorService.TargetDir)System.Text.Encodings.Web.dll" KeyPath="yes" />
+        <File Id="System.Text.Encodings.Web.dll" Source="$(var.Sage50Connector.TargetDir)System.Text.Encodings.Web.dll" KeyPath="yes" />
       </Component>
       <Component Id="SystemTextJson" Guid="{85CF5B2C-2009-4628-9192-424A10713DF6}">
-        <File Id="System.Text.Json.dll" Source="$(var.Sage50ConnectorService.TargetDir)System.Text.Json.dll" KeyPath="yes" />
+        <File Id="System.Text.Json.dll" Source="$(var.Sage50Connector.TargetDir)System.Text.Json.dll" KeyPath="yes" />
       </Component>
       <Component Id="SystemThreadingTasksExtensions" Guid="{4F88BCCE-702E-4C29-8C76-910F1F8BDACF}">
-        <File Id="System.Threading.Tasks.Extensions.dll" Source="$(var.Sage50ConnectorService.TargetDir)System.Threading.Tasks.Extensions.dll" KeyPath="yes" />
+        <File Id="System.Threading.Tasks.Extensions.dll" Source="$(var.Sage50Connector.TargetDir)System.Threading.Tasks.Extensions.dll" KeyPath="yes" />
       </Component>
       <Component Id="SystemValueTuple" Guid="{0CF3D46E-6A46-4DD0-9A78-6AEBC00BBE5E}">
-        <File Id="System.ValueTuple.dll" Source="$(var.Sage50ConnectorService.TargetDir)System.ValueTuple.dll" KeyPath="yes" />
+        <File Id="System.ValueTuple.dll" Source="$(var.Sage50Connector.TargetDir)System.ValueTuple.dll" KeyPath="yes" />
       </Component>
     </ComponentGroup>
   </Fragment>
