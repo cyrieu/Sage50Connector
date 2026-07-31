@@ -30,8 +30,9 @@
         {
             // 
             // Service1
+            // Must match the name the installer (WiX ServiceInstall / CustomInstaller) registers.
             // 
-            this.ServiceName = "Service1";
+            this.ServiceName = "Sage50ConnectorService";
 
         }
 
