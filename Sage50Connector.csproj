@@ -101,6 +101,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Helpers\CompanyManager.cs" />
+    <Compile Include="Helpers\ConnectorConfig.cs" />
     <Compile Include="Helpers\GlobalFunctions.cs" />
     <Compile Include="Helpers\Sage50Connector.cs" />
     <Compile Include="Helpers\Sage50Repository.cs" />

@@ -1,5 +1,4 @@
-﻿using Microsoft.Win32;
-using Newtonsoft.Json;
+﻿using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Sage.Peachtree.API;
 using Sage50Connector.Helpers;
@@ -63,46 +62,134 @@ namespace Sage50Connector
         public static string AccessKey;
         public static string ConnectionId;
 
-        private const string ConfigFilePath = @"C:\Users\Default\Documents\sage50Config.json";
+        private static ConnectorConfig Config;
 
-        public static void Main()
+        public static int Main(string[] args)
         {
-            if (CompanyName == null || AccessKey == null || ConnectionId == null)
+            if (args.Length > 0 && string.Equals(args[0], "--setup", StringComparison.OrdinalIgnoreCase))
             {
-                string jsonString = File.ReadAllText(ConfigFilePath);
-                JObject config = JObject.Parse(jsonString);
-                CompanyName = GetRequiredConfigValue(config, "CompanyName");
-                AccessKey = GetRequiredConfigValue(config, "AccessKey");
-                ConnectionId = GetRequiredConfigValue(config, "ConnectionId");
+                return RunSetupAsync(args).GetAwaiter().GetResult();
+            }
+
+            try
+            {
+                Config = ConnectorConfig.Load();
+                CompanyName = Config.CompanyName;
+                AccessKey = Config.AccessKey;
+                ConnectionId = Config.ConnectionId;
+            }
+            catch (Exception ex)
+            {
+                WriteToFile("Failed to load connector configuration: " + ex.Message);
+                return 1;
             }
 
             WriteToFile(
                 "Loaded configuration from "
-                    + ConfigFilePath
+                    + Config.LoadedFromPath
                     + "; CompanyName='"
                     + CompanyName
                     + "'; ConnectionId='"
                     + ConnectionId
                     + "'; AccessKeyLength="
                     + AccessKey.Length
+                    + "; ApiBaseUrl="
+                    + Config.ApiBaseUrl
             );
 
-            //string CompanyName = "Rutter";// GetFromRegistry("CompanyName");
             MainAsync(AccessKey, CompanyName, ConnectionId).GetAwaiter().GetResult();
+            return 0;
         }
 
-        private static string GetRequiredConfigValue(JObject config, string key)
+        /// <summary>
+        /// Fetches this connection's sage50Config.json from the Rutter backend
+        /// (POST /sage-50/save-id) and writes it to the ProgramData config path,
+        /// so nobody hand-edits JSON on the machine.
+        ///
+        /// Usage: Sage50Connector.exe --setup &lt;CompanyName&gt; &lt;OrgId&gt; [ApiBaseUrl]
+        ///   CompanyName — the Sage 50 company (e.g. "Bellwether Garden Supply")
+        ///   OrgId       — the Rutter organization the connection belongs to
+        ///   ApiBaseUrl  — optional; defaults to https://production.rutterapi.com
+        /// </summary>
+        private static async Task<int> RunSetupAsync(string[] args)
         {
-            string value = config.Value<string>(key);
-            if (string.IsNullOrWhiteSpace(value))
+            if (args.Length < 3)
             {
-                throw new InvalidDataException(
-                    "sage50Config.json is missing required value: " + key
-                );
+                Console.Error.WriteLine("Usage: Sage50Connector.exe --setup <CompanyName> <OrgId> [ApiBaseUrl]");
+                return 1;
             }
 
-            return value;
+            string companyName = args[1];
+            string orgId = args[2];
+            string apiBaseUrl = args.Length > 3 && !string.IsNullOrWhiteSpace(args[3])
+                ? args[3]
+                : ConnectorConfig.DefaultApiBaseUrl;
+            string saveIdUrl = apiBaseUrl.TrimEnd('/') + "/sage-50/save-id";
+
+            try
+            {
+                using (HttpClient client = new HttpClient())
+                {
+                    var requestBody = new
+                    {
+                        company_id = companyName,
+                        org_id = orgId
+                    };
+
+                    var request = new HttpRequestMessage(HttpMethod.Post, saveIdUrl);
+                    request.Content = new StringContent(JsonConvert.SerializeObject(requestBody), Encoding.UTF8, "application/json");
+                    var response = await client.SendAsync(request);
+                    var responseContent = await response.Content.ReadAsStringAsync();
+
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        WriteToFile("Setup failed. Status code: " + response.StatusCode + ", Response: " + responseContent);
+                        return 1;
+                    }
+
+                    JObject body = JObject.Parse(responseContent);
+                    if (body.Value<bool?>("is_successful") != true)
+                    {
+                        WriteToFile("Setup failed: " + (body.Value<string>("reason") ?? responseContent));
+                        return 1;
+                    }
+
+                    JObject sage50Config = body["sage50_config"] as JObject;
+                    if (sage50Config == null)
+                    {
+                        WriteToFile("Setup failed: response did not include sage50_config. Response: " + responseContent);
+                        return 1;
+                    }
+
+                    var config = ConnectorConfig.Save(
+                        companyName,
+                        sage50Config.Value<string>("AccessKey"),
+                        sage50Config.Value<string>("ConnectionId"),
+                        apiBaseUrl
+                    );
+
+                    WriteToFile(
+                        "Setup complete. Wrote "
+                            + config.LoadedFromPath
+                            + "; CompanyName='"
+                            + config.CompanyName
+                            + "'; ConnectionId='"
+                            + config.ConnectionId
+                            + "'; AccessKeyLength="
+                            + config.AccessKey.Length
+                            + "; ApiBaseUrl="
+                            + config.ApiBaseUrl
+                    );
+                    return 0;
+                }
+            }
+            catch (Exception ex)
+            {
+                WriteToFile("Setup failed with an exception: " + ex.Message);
+                return 1;
+            }
         }
+
         static async Task MainAsync(string AccessKey, string CompanyName, string ConnectionId)
         {
             while (true)
@@ -153,7 +240,7 @@ namespace Sage50Connector
                         + "'; AccessKeyLength="
                         + AccessKey.Length
                 );
-                var request = new HttpRequestMessage(HttpMethod.Post, "https://production.rutterapi.com/versioned/ingest");
+                var request = new HttpRequestMessage(HttpMethod.Post, Config.IngestUrl);
                 request.Headers.Add("X-Rutter-Version", "2024-04-30");
                 request.Headers.Add("Authorization", $"Bearer {AccessKey}");
 
@@ -376,7 +463,7 @@ namespace Sage50Connector
         {
             using (HttpClient client = new HttpClient())
             {
-                var request = new HttpRequestMessage(HttpMethod.Post, "https://production.rutterapi.com/versioned/ingest");
+                var request = new HttpRequestMessage(HttpMethod.Post, Config.IngestUrl);
                 request.Headers.Add("X-Rutter-Version", "2024-04-30");
                 request.Headers.Add("Authorization", $"Bearer {AccessKey}");
                 request.Content = new StringContent(jsonString, Encoding.UTF8, "application/json");
@@ -404,7 +491,7 @@ namespace Sage50Connector
             // Ensure thread safety if the application becomes multi-threaded
             lock (logLock)
             {
-                using (StreamWriter writer = new StreamWriter("C:\\Users\\Default\\Documents\\log.txt", true))
+                using (StreamWriter writer = new StreamWriter(ConnectorConfig.ResolveLogFilePath(), true))
                 {
                     writer.WriteLine(logMessage);
                     writer.Close();
