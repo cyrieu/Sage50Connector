@@ -8,7 +8,8 @@ namespace Sage50ConnectorService
 {
     public partial class Service1 : ServiceBase
     {
-        private Timer timer;
+        // Fully qualify: System.Threading and System.Timers both export Timer.
+        private System.Timers.Timer timer;
         // Guards against the timer firing while the previous run is still going
         // (a NOOP job sleeps 5 minutes inside a single run).
         private int runInProgress;
@@ -22,7 +23,7 @@ namespace Sage50ConnectorService
         protected override void OnStart(string[] args)
         {
             // Initialize and start the timer
-            timer = new Timer();
+            timer = new System.Timers.Timer();
             timer.Elapsed += new ElapsedEventHandler(OnTimerElapsed);
             timer.Interval = 60000; // 1 minute in milliseconds
             timer.Enabled = true;
