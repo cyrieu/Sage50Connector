@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Fragment>
+    <UI>
+      <!--
+        Sage connection-details dialog, inserted between InstallDirDlg and
+        VerifyReadyDlg in the WixUI_InstallDir flow. The three edits map to the
+        public properties consumed by the WriteSageConfigJson custom action.
+        All three may be left blank — provisioning can happen later via
+        'Sage50Connector.exe with the setup arguments'.
+      -->
+      <Dialog Id="SageConfigDlg" Width="370" Height="270" Title="[ProductName] Setup" TrackDiskSpace="no">
+        <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" TabSkip="no" Text="WixUI_Bmp_Banner" />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="300" Height="15" Transparent="yes" NoPrefix="yes" Text="{\WixUI_Font_Title}Sage 50 connection details" />
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="280" Height="15" Transparent="yes" NoPrefix="yes" NoWrap="no" Text="Enter the connection details from Rutter, or leave blank to configure later." />
+
+        <Control Id="CompanyNameLabel" Type="Text" X="20" Y="70" Width="120" Height="15" NoPrefix="yes" Text="&amp;Company name (Sage 50):" />
+        <Control Id="CompanyNameEdit" Type="Edit" X="140" Y="68" Width="200" Height="18" Property="COMPANYNAME" />
+
+        <Control Id="AccessKeyLabel" Type="Text" X="20" Y="95" Width="120" Height="15" NoPrefix="yes" Text="&amp;Access key (Rutter):" />
+        <Control Id="AccessKeyEdit" Type="Edit" X="140" Y="93" Width="200" Height="18" Property="ACCESSKEY" />
+        <Control Id="AccessKeyHint" Type="Text" X="140" Y="112" Width="200" Height="12" Transparent="yes" NoPrefix="yes" Text="The inbound access token, iat_..." />
+
+        <Control Id="ConnectionIdLabel" Type="Text" X="20" Y="135" Width="120" Height="15" NoPrefix="yes" Text="C&amp;onnection ID (Rutter):" />
+        <Control Id="ConnectionIdEdit" Type="Edit" X="140" Y="133" Width="200" Height="18" Property="CONNECTIONID" />
+        <Control Id="ConnectionIdHint" Type="Text" X="140" Y="152" Width="200" Height="12" Transparent="yes" NoPrefix="yes" Text="The Rutter connection (item) id, a UUID." />
+
+        <Control Id="LaterNote" Type="Text" X="20" Y="180" Width="330" Height="40" Transparent="yes" NoPrefix="yes" NoWrap="no" Text="All fields can be left blank. To provision later, run &quot;Sage50Connector.exe --setup &lt;CompanyName&gt; &lt;OrgId&gt;&quot; from an elevated prompt." />
+
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="&amp;Back" />
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="&amp;Next" />
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="Cancel" />
+      </Dialog>
+
+      <!-- Wire the dialog into the WixUI_InstallDir sequence (installed-path only) -->
+      <Publish Dialog="InstallDirDlg" Control="Next" Event="NewDialog" Value="SageConfigDlg">NOT Installed</Publish>
+      <Publish Dialog="SageConfigDlg" Control="Back" Event="NewDialog" Value="InstallDirDlg">1</Publish>
+      <Publish Dialog="SageConfigDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg">1</Publish>
+      <Publish Dialog="SageConfigDlg" Control="Cancel" Event="SpawnDialog" Value="CancelDlg">1</Publish>
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="SageConfigDlg">NOT Installed</Publish>
+    </UI>
+  </Fragment>
+</Wix>
