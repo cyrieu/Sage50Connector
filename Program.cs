@@ -63,17 +63,29 @@ namespace Sage50Connector
         public static string AccessKey;
         public static string ConnectionId;
 
+        private const string ConfigFilePath = @"C:\Users\Default\Documents\sage50Config.json";
+
         public static void Main()
         {
             if (CompanyName == null || AccessKey == null || ConnectionId == null)
             {
-                string filePath = @"C:\Users\Default\Documents\sage50Config.json";
-                string jsonString = File.ReadAllText(filePath);
+                string jsonString = File.ReadAllText(ConfigFilePath);
                 JObject config = JObject.Parse(jsonString);
                 CompanyName = GetRequiredConfigValue(config, "CompanyName");
                 AccessKey = GetRequiredConfigValue(config, "AccessKey");
                 ConnectionId = GetRequiredConfigValue(config, "ConnectionId");
             }
+
+            WriteToFile(
+                "Loaded configuration from "
+                    + ConfigFilePath
+                    + "; CompanyName='"
+                    + CompanyName
+                    + "'; ConnectionId='"
+                    + ConnectionId
+                    + "'; AccessKeyLength="
+                    + AccessKey.Length
+            );
 
             //string CompanyName = "Rutter";// GetFromRegistry("CompanyName");
             MainAsync(AccessKey, CompanyName, ConnectionId).GetAwaiter().GetResult();
@@ -135,6 +147,12 @@ namespace Sage50Connector
         {
             using (HttpClient client = new HttpClient())
             {
+                WriteToFile(
+                    "Polling Rutter ingest for ConnectionId='"
+                        + ConnectionId
+                        + "'; AccessKeyLength="
+                        + AccessKey.Length
+                );
                 var request = new HttpRequestMessage(HttpMethod.Post, "https://production.rutterapi.com/versioned/ingest");
                 request.Headers.Add("X-Rutter-Version", "2024-04-30");
                 request.Headers.Add("Authorization", $"Bearer {AccessKey}");
