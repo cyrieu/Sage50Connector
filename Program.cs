@@ -190,10 +190,24 @@ namespace Sage50Connector
             }
         }
 
+        /// <summary>
+        /// Pause between poll/report cycles. Rutter hands the same job back while it
+        /// is still in progress, so a job we cannot complete would otherwise be
+        /// retried as fast as the network allows.
+        /// </summary>
+        private static readonly TimeSpan PollDelay = TimeSpan.FromSeconds(2);
+
         static async Task MainAsync(string AccessKey, string CompanyName, string ConnectionId)
         {
+            bool firstIteration = true;
             while (true)
             {
+                if (!firstIteration)
+                {
+                    await Task.Delay(PollDelay);
+                }
+                firstIteration = false;
+
                 WriteToFile("###############################--------####################################################################################");
                 WriteToFile(DateTime.Now + ": Process Started");
                 ResponseObject job = await GetJobFromRutterAsync(AccessKey);
@@ -328,6 +342,9 @@ namespace Sage50Connector
             catch (Exception ex)
             {
                 WriteToFile(DateTime.Now + ": Error handling LIST_FETCH job for " + job.platform_entity + ". Error: " + ex.Message);
+                // parameters must be echoed back even on the error path: Rutter
+                // validates a LIST_FETCH report against a schema that requires it,
+                // and rejects the report with a 500 when it is missing.
                 var errorObject = new
                 {
                     connection = new
@@ -337,6 +354,7 @@ namespace Sage50Connector
                     job_id = job.job_id,
                     type = job.type,
                     platform_entity = job.platform_entity,
+                    parameters = job.parameters,
                     error_message = ex.Message
                 };
 
