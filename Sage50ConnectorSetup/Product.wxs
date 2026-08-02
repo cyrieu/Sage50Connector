@@ -23,24 +23,6 @@
     <UIRef Id="WixUI_InstallDir" />
     <UIRef Id="WixUI_ErrorProgressText" />
 
-    <!--
-      Service identity. Sage 50 records third-party access per Windows user, so
-      the service only works when it runs as the account that clicked Always
-      Allow Access. Supply it at install time:
-
-        msiexec /i RutterSage50ConnectorSetup.msi ^
-          SERVICEACCOUNT="MACHINE\SageUser" SERVICEPASSWORD="..."
-
-      The LocalSystem default exists so the package still installs unattended;
-      under it the service will never authorize, which is why the service is
-      installed Start="demand" rather than started automatically.
-    -->
-    <Property Id="SERVICEACCOUNT" Value="LocalSystem" />
-    <Property Id="SERVICEPASSWORD" Secure="yes" Hidden="yes" />
-    <Condition Message="SERVICEPASSWORD is required when SERVICEACCOUNT is not LocalSystem.">
-      <![CDATA[SERVICEACCOUNT = "LocalSystem" OR SERVICEPASSWORD]]>
-    </Condition>
-
     <!-- Deferred custom action that writes sage50Config.json from COMPANYNAME/ACCESSKEY/CONNECTIONID -->
     <Binary Id="WriteSageConfigJsonCA"
             SourceFile="$(var.Sage50ConnectorSetupCustomActions.TargetDir)$(var.Sage50ConnectorSetupCustomActions.TargetName).CA.dll" />
@@ -70,43 +52,6 @@
 
   <Fragment>
     <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
-      <!-- The Windows service that polls Rutter every minute and runs jobs -->
-      <Component Id="Sage50ConnectorServiceExe" Guid="{0CC35B0C-6966-4C70-A3E2-4F305426E569}">
-        <File Id="Sage50ConnectorService.exe"
-              Source="$(var.Sage50ConnectorService.TargetDir)Sage50ConnectorService.exe"
-              KeyPath="yes" />
-        <!--
-          The service must run as the Windows user who granted the connector
-          access in Sage 50. Sage records that grant per user: running as
-          LocalSystem returns "Authorization result = Pending" forever, even on a
-          machine where an interactive user has already clicked Always Allow
-          Access. SERVICEACCOUNT/SERVICEPASSWORD are collected at install time
-          (see the properties above); Start="demand" so a wrong credential does
-          not fail the install, and the operator can start the service once the
-          Sage grant is in place.
-        -->
-        <ServiceInstall Id="Sage50ConnectorServiceInstall"
-                        Type="ownProcess"
-                        Name="Sage50ConnectorService"
-                        DisplayName="Rutter Sage 50 Connector"
-                        Description="Polls Rutter for Sage 50 jobs and relays them to the local Sage 50 desktop application via the Sage SDK."
-                        Start="demand"
-                        ErrorControl="normal"
-                        Account="[SERVICEACCOUNT]"
-                        Password="[SERVICEPASSWORD]" />
-        <!--
-          Deliberately no Start="install": the service cannot authorize against
-          Sage until someone has clicked Always Allow Access as the account it
-          runs under, so starting it here just puts a failing service on the box.
-          Start it once Sage access is granted:
-              sc start Sage50ConnectorService
-        -->
-        <ServiceControl Id="Sage50ConnectorServiceControl"
-                        Name="Sage50ConnectorService"
-                        Stop="both"
-                        Remove="uninstall"
-                        Wait="yes" />
-      </Component>
       <!-- Console/provisioning tool + shared runtime deps come from the connector project
            output (the service project does not copy all transitive packages.config deps). -->
       <Component Id="Sage50ConnectorExe" Guid="{EC37D31E-8776-4583-8FDA-DAFCA5A739C4}">
@@ -114,11 +59,22 @@
               Source="$(var.Sage50Connector.TargetDir)Sage50Connector.exe"
               KeyPath="yes" />
       </Component>
-      <Component Id="Sage50ConnectorServiceExeConfig" Guid="{44FA3286-1697-4BBC-963C-61CEA8B5C77A}">
-        <File Id="Sage50ConnectorService.exe.config"
-              Source="$(var.Sage50ConnectorService.ProjectDir)App.config"
-              Name="Sage50ConnectorService.exe.config"
-              KeyPath="yes" />
+      <!--
+        Start the tray app when a user logs on. This is deliberately how the
+        connector runs rather than as a Windows service: Sage records third-party
+        access per Windows user, so running in the logged-on user's session means
+        the connector is automatically the identity that approved it. A service
+        had to be given that user's credentials to achieve the same thing.
+
+        The trade-off is that syncing only happens while someone is logged in.
+      -->
+      <Component Id="Sage50ConnectorAutostart" Guid="{9E1D7C4A-3B62-4F0E-9C21-7D5A1E8B4C33}">
+        <RegistryValue Root="HKLM"
+                       Key="Software\Microsoft\Windows\CurrentVersion\Run"
+                       Name="RutterSage50Connector"
+                       Type="string"
+                       Value="&quot;[INSTALLFOLDER]Sage50Connector.exe&quot;"
+                       KeyPath="yes" />
       </Component>
       <Component Id="NewtonsoftJson" Guid="{1F2DA1C6-B49D-4255-9915-5C4235633D57}">
         <File Id="Newtonsoft.Json.dll" Source="$(var.Sage50Connector.TargetDir)Newtonsoft.Json.dll" KeyPath="yes" />
