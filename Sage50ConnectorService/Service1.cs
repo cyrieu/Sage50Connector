@@ -39,6 +39,12 @@ namespace Sage50ConnectorService
             // Stop the timer when the service is stopped
             timer.Enabled = false;
             timer.Dispose();
+
+            // Hand the Sage connection back. Sage licenses a limited number of
+            // concurrent connections and does not reclaim ours on exit, so a
+            // service that stops without releasing burns a seat until the Sage
+            // connect service is restarted.
+            Sage50Connector.Program.ReleaseSageSession();
         }
 
         private void OnTimerElapsed(object source, ElapsedEventArgs e)

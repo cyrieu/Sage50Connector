@@ -96,6 +96,8 @@ namespace Sage50Connector
                 return 1;
             }
 
+            InstallSageSessionCleanup();
+
             WriteToFile(
                 "Loaded configuration from "
                     + Config.LoadedFromPath
@@ -109,8 +111,67 @@ namespace Sage50Connector
                     + Config.ApiBaseUrl
             );
 
-            MainAsync(AccessKey, CompanyName, ConnectionId).GetAwaiter().GetResult();
+            try
+            {
+                MainAsync(AccessKey, CompanyName, ConnectionId).GetAwaiter().GetResult();
+            }
+            finally
+            {
+                ReleaseSageSession();
+            }
             return 0;
+        }
+
+        private static int sageSessionReleased;
+
+        /// <summary>
+        /// Hand the Sage connection back on every exit path the process can
+        /// observe: a normal return, Ctrl+C, an unhandled exception, and the
+        /// service calling Stop.
+        ///
+        /// A hard kill (TerminateProcess, Stop-Process -Force, power loss) runs no
+        /// handler and still leaks the seat — nothing in-process can fix that.
+        /// Recovering from it means restarting the "Sage 50 Connect Service".
+        /// </summary>
+        private static bool sageCleanupInstalled;
+
+        private static void InstallSageSessionCleanup()
+        {
+            // The service calls Main once a minute in a single process, so arm the
+            // release for this run but only ever register the handlers once.
+            System.Threading.Interlocked.Exchange(ref sageSessionReleased, 0);
+
+            if (sageCleanupInstalled)
+            {
+                return;
+            }
+            sageCleanupInstalled = true;
+
+            AppDomain.CurrentDomain.ProcessExit += (s, e) => ReleaseSageSession();
+            AppDomain.CurrentDomain.UnhandledException += (s, e) => ReleaseSageSession();
+            Console.CancelKeyPress += (s, e) => ReleaseSageSession();
+        }
+
+        /// <summary>
+        /// Idempotent: the exit paths above overlap, and Sage does not enjoy being
+        /// closed twice.
+        /// </summary>
+        public static void ReleaseSageSession()
+        {
+            if (System.Threading.Interlocked.Exchange(ref sageSessionReleased, 1) != 0)
+            {
+                return;
+            }
+
+            try
+            {
+                WriteToFile(DateTime.Now + ": Releasing Sage session.");
+                Helpers.Sage50Connector.Instance.Shutdown();
+            }
+            catch (Exception ex)
+            {
+                WriteToFile(DateTime.Now + ": Error releasing Sage session: " + ex.Message);
+            }
         }
 
         /// <summary>
