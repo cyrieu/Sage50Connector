@@ -176,6 +176,44 @@ namespace Sage50Connector.Helpers
             return new List<ChartofAccount>();
         }
 
+        /// <summary>
+        /// Whether Sage actually recorded when this record last changed. Records
+        /// that have not been touched since the company was created come back with
+        /// LastSavedAt null (or DateTime default).
+        /// </summary>
+        private static bool HasTimestamp(DateTime? lastSavedAt)
+        {
+            return lastSavedAt != null && lastSavedAt != default(DateTime);
+        }
+
+        /// <summary>
+        /// Incremental-fetch predicate. A null nullable compares false against any
+        /// bound in C#, so filtering on LastSavedAt alone drops every record Sage
+        /// never timestamped - permanently, since no later cutoff brings them back.
+        /// When Sage cannot say when a record changed, include it and let Rutter
+        /// dedupe on the primary key.
+        /// </summary>
+        private static bool ChangedSince(DateTime? lastSavedAt, DateTime? cutoff)
+        {
+            if (cutoff == null) return true;
+            if (!HasTimestamp(lastSavedAt)) return true;
+            return lastSavedAt >= cutoff;
+        }
+
+        private static void LogFilterOutcome(string entity, int total, int withoutTimestamp, int returned, DateTime? cutoff)
+        {
+            global::Sage50Connector.Program.WriteToFile(
+                string.Format(
+                    "{0}: Sage returned {1}; {2} had no LastSavedAt; {3} passed the updated_at cutoff ({4}).",
+                    entity,
+                    total,
+                    withoutTimestamp,
+                    returned,
+                    cutoff.HasValue ? cutoff.Value.ToString("o") : "none"
+                )
+            );
+        }
+
         public List<ChartofVendor> GetVendors(string companyName, string updatedAt = null)
         {
             EnsureCompanyConnected(companyName);
@@ -190,10 +228,18 @@ namespace Sage50Connector.Helpers
                     updatedAtDate = DateTime.Parse(updatedAt);
                 }
 
+                int totalFromSage = 0;
+                int withoutTimestamp = 0;
                 List<ChartofVendor> chartofVendors = new List<ChartofVendor>();
                 foreach (var vendor in vendorList)
                 {
-                    if (updatedAtDate == null || vendor.LastSavedAt >= updatedAtDate)
+                    totalFromSage++;
+                    if (!HasTimestamp(vendor.LastSavedAt))
+                    {
+                        withoutTimestamp++;
+                    }
+
+                    if (ChangedSince(vendor.LastSavedAt, updatedAtDate))
                     {
                         chartofVendors.Add(new ChartofVendor
                         {
@@ -208,6 +254,7 @@ namespace Sage50Connector.Helpers
                     }
                 }
 
+                LogFilterOutcome("VENDORS", totalFromSage, withoutTimestamp, chartofVendors.Count, updatedAtDate);
                 return chartofVendors;
             }
             return new List<ChartofVendor>();
@@ -227,10 +274,18 @@ namespace Sage50Connector.Helpers
                     updatedAtDate = DateTime.Parse(updatedAt);
                 }
 
+                int totalFromSage = 0;
+                int withoutTimestamp = 0;
                 List<ChartofCustomer> chartofCustomers = new List<ChartofCustomer>();
                 foreach (var customer in customerList)
                 {
-                    if (updatedAtDate == null || customer.LastSavedAt >= updatedAtDate)
+                    totalFromSage++;
+                    if (!HasTimestamp(customer.LastSavedAt))
+                    {
+                        withoutTimestamp++;
+                    }
+
+                    if (ChangedSince(customer.LastSavedAt, updatedAtDate))
                     {
                         chartofCustomers.Add(new ChartofCustomer
                         {
@@ -245,6 +300,7 @@ namespace Sage50Connector.Helpers
                     }
                 }
 
+                LogFilterOutcome("CUSTOMERS", totalFromSage, withoutTimestamp, chartofCustomers.Count, updatedAtDate);
                 return chartofCustomers;
             }
             return new List<ChartofCustomer>();
