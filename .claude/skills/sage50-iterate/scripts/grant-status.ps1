@@ -37,6 +37,9 @@ Get-ChildItem 'C:\Sage\Peachtree\Company' -Recurse -Filter 'APIACCSS.DAT' -Error
     $entries = ($s | Where-Object { $_ -eq 'Sage50Connector.exe' }).Count
     Write-Output ($_.FullName)
     Write-Output ('   connector entries: ' + $entries)
-    Write-Output ('   current exe hash present: ' + ($s -contains $cur))
+    # Sage writes an entry when access is *requested*, not only when it is
+    # granted, so this answers "has this binary ever asked?" and NOT "is it
+    # authorized?". Only a run that fetches data proves the grant.
+    Write-Output ('   current exe hash recorded (requested or granted): ' + ($s -contains $cur))
     Write-Output ('   last written: ' + $_.LastWriteTime)
   }
