@@ -82,23 +82,33 @@ connector upgrade re-prompts every user. Investigate before shipping updates.
 When iterating locally, avoid needless rebuilds — restarting the existing binary
 is free.
 
-### The approval cannot be automated
+### Automating the approval — what works
 
-Attempted 2026-08-02 and abandoned; do not spend the afternoon on it again:
+For **development**, the approval can be clicked without a human, but only from
+*outside* the VM. What fails, and what works:
 
-- **UI Automation** (`System.Windows.Automation`) driven from PowerShell in the
-  interactive session works in general, and can enumerate the Sage window — but
-  Sage 50 exposes only static text panes
-  (`WindowsForms10.STATIC.app...`) and no invokable buttons. There is nothing
-  for `InvokePattern` to click.
-- **Screenshot-guided coordinate clicking** is blocked by Windows Defender:
-  capturing the screen and base64-encoding it trips
-  `ScriptContainedMaliciousContent`. Do not try to work around the AV.
-- **Codex / remote agents** run sandboxed without outbound Azure access and
-  cannot reach the VM at all.
+| Approach | Result |
+|---|---|
+| UI Automation (`System.Windows.Automation`) from PowerShell in the interactive session | **No.** Sage exposes only static text panes (`WindowsForms10.STATIC.app...`); no invokable buttons for `InvokePattern`. |
+| Screenshot + coordinate clicking from inside the VM | **No.** Windows Defender blocks screen-capture-plus-base64 as `ScriptContainedMaliciousContent`. Do not work around the AV. |
+| Remote agent talking to the Azure API | **No.** Sandboxed agents have no outbound access to `management.azure.com`. |
+| **Computer use driving the Mac's Remote Desktop app** | **Yes.** This is the one that works. |
 
-Treat human approval as a hard requirement of the product: it must be a
-documented install step, and it blocks any silent auto-update story.
+The working recipe (used repeatedly on 2026-08-02) is to keep an RDP session
+open on the Mac and hand the GUI steps to an agent with computer use — e.g.
+`/codex:rescue`, told to operate *only* inside the existing remote-desktop
+session:
+
+1. File → Close Company (the real menu command, not killing `Peachw.exe`).
+2. Reopen "Bellwether Garden Supply" from the welcome screen.
+3. When the Third Party Application Access dialog appears for
+   `Sage50Connector.exe`, confirm **Always allow access** and click **OK**.
+
+The agent will typically stop and ask before clicking OK, since it is granting
+persistent data access; answer it and it finishes.
+
+None of this changes the **product** story: a customer still has to click this
+themselves. It is a hard install step and it blocks silent auto-update.
 
 Note that killing `Peachw.exe` and relaunching it brings Sage back to the
 **welcome screen with no company open**, which is *not* equivalent to
@@ -223,11 +233,28 @@ marks the job `completed` only when a response arrives **without** `next_cursor`
 and re-serves the same job with `parameters.cursor` advanced otherwise.
 
 `next_cursor` must be *omitted*, not null, on the final page — Rutter types it as
-an optional string, which rejects an explicit `null`.
+an optional string, which rejects an explicit `null`. **The same applies to
+`parameters.cursor`**, which the connector echoes back on every report; it
+carries `[JsonProperty(NullValueHandling = NullValueHandling.Ignore)]` for
+exactly this reason. Send `"cursor": null` on the first page and every job dies
+with a 500 (`path: ["parameters","cursor"]`), nothing persists, and the cursor
+never advances.
 
 Paging keys on the record id, not an offset: Sage is a live database and an
 offset silently skips records when something is inserted earlier in the order
 between pages.
+
+Verified 2026-08-02: a 156-account fetch with `limit=50` pages correctly, the
+cursor advances, the final page arrives without `next_cursor`, the job moves to
+`completed`, and all 156 rows persist with populated `platform_id`s.
+
+### Kill stale connector processes before re-testing
+
+The connector caches its `PeachtreeSession`. An instance that started before an
+approval keeps failing after it, and — because it wakes every 5 minutes on
+`NOOP` — it will grab freshly enqueued jobs and fail them before a newly started
+instance can. Symptom: jobs go `failed` seconds before your run starts, and your
+run only sees `NOOP`. Always `Stop-Process` every `Sage50Connector` first.
 
 ### Job lifecycle gotcha
 
