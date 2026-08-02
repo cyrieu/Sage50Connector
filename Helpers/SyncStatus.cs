@@ -95,6 +95,46 @@ namespace Sage50Connector.Helpers
             Raise();
         }
 
+        /// <summary>
+        /// Rutter had no work queued.
+        ///
+        /// Worth its own message rather than "up to date": the connector cannot
+        /// decide to send data, it can only answer what Rutter asks for. Pressing
+        /// "Sync now" when nothing is queued genuinely does nothing, and saying so
+        /// is better than a button that looks broken.
+        /// </summary>
+        public void SetNothingRequested()
+        {
+            lock (gate)
+            {
+                state = ConnectorState.Idle;
+                currentEntity = null;
+                recordsDone = 0;
+                recordsTotal = 0;
+                message = "Connected. Rutter has not requested any data — checked "
+                    + DateTime.Now.ToString("t") + ", checking again in 5 minutes.";
+            }
+            Raise();
+        }
+
+        /// <summary>
+        /// Asked Rutter for work. Distinct from Syncing because there may be
+        /// nothing to do — this is the feedback for the "Sync now" button, which
+        /// otherwise looks dead whenever the queue is empty.
+        /// </summary>
+        public void SetChecking()
+        {
+            lock (gate)
+            {
+                state = ConnectorState.Syncing;
+                message = "Checking Rutter for changes…";
+                currentEntity = null;
+                recordsDone = 0;
+                recordsTotal = 0;
+            }
+            Raise();
+        }
+
         public void SetSyncing(string entity, int done, int total)
         {
             lock (gate)

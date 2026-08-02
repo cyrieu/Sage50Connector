@@ -13,11 +13,49 @@ Rutter never connects inbound; the connector always dials out.
 
 ## Build and run on the VM
 
-1. Pull the desired Git commit on the VM.
-2. Open `Sage50Connector.sln` in Visual Studio 2022 (not merely the repository folder).
-3. Select `Debug` and `x86` in the toolbar.
-4. Use **Build -> Rebuild Solution** after source changes. Changing only the external config does not require a rebuild.
-5. Run the `Sage50Connector` startup project.
+Build remotely from macOS with the Visual Studio Build Tools installed on the
+VM. The VM builds `origin/rutter/productionize-v1`, so commit and push the code
+you want to test first. Then run:
+
+```bash
+.claude/skills/sage50-iterate/scripts/vmrun.sh \
+  .claude/skills/sage50-iterate/scripts/build.ps1
+```
+
+`build.ps1` stops any existing connector, fetches and resets the VM checkout to
+`origin/rutter/productionize-v1`, restores NuGet packages, and rebuilds the
+solution in `Release` using:
+
+```text
+C:\BuildTools\MSBuild\Current\Bin\MSBuild.exe
+```
+
+The connector project sets `PlatformTarget` to `x86`; the executable is written
+to `C:\src\Sage50Connector\bin\Release\Sage50Connector.exe`.
+
+Do not run the executable directly through `az vm run-command`: that command
+runs as `SYSTEM`, while Sage authorization belongs to the interactive Windows
+user. Keep an RDP session open as the lab Windows user, then launch the connector from
+macOS with:
+
+```bash
+.claude/skills/sage50-iterate/scripts/vmrun.sh \
+  .claude/skills/sage50-iterate/scripts/run.ps1
+```
+
+`run.ps1` stops stale connector processes, registers `RutterSageLive` as an
+interactive-token scheduled task for the lab Windows user, starts it, waits for the
+connector to poll, and prints a redacted log excerpt. To stop it before
+enqueuing another test batch:
+
+```bash
+.claude/skills/sage50-iterate/scripts/vmrun.sh \
+  .claude/skills/sage50-iterate/scripts/stop.ps1
+```
+
+If you are already working inside the RDP desktop as the approved user, you can
+instead run `C:\src\Sage50Connector\bin\Release\Sage50Connector.exe` directly
+from PowerShell or File Explorer.
 
 Sage 50 does **not** need to be open — see "Sage 50 does not need to be running".
 
@@ -26,7 +64,7 @@ The one-shot executable polls for jobs and exits after
 long-running Windows Service wrapper; it calls the connector at startup and then
 once per minute.
 
-### Scripted build/run from macOS
+### Azure CLI details
 
 `az vm run-command` works for git, build, and file checks, but **not** for
 running the connector — see "The connector must run as the user who approved
@@ -87,9 +125,9 @@ So the identity Sage authorizes is the executable's *content*:
 | **Rebuilding after a source change** | **No** — different bytes, new identity, new approval |
 | Reinstalling or rolling back to a previously approved build | Yes — entries are additive, so old hashes stay authorized |
 
-This is Sage behaving as designed, not a defect, and it is why rebuilding in
-Visual Studio often seemed fine: an incremental build that did not recompile
-left the binary untouched.
+This is Sage behaving as designed, not a defect. A deterministic rebuild with
+no source change produces the same executable bytes and keeps the existing
+approval; a source change produces a new identity.
 
 **Product consequence, and it is a real one:** every genuine new version has a
 new hash, so **every customer must re-approve on every upgrade**. Combined with

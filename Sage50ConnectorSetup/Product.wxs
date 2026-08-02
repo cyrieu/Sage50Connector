@@ -16,6 +16,7 @@
 
     <Feature Id="ProductFeature" Title="Rutter Sage 50 Connector" Level="1">
       <ComponentGroupRef Id="ProductComponents" />
+      <ComponentGroupRef Id="ShortcutComponents" />
     </Feature>
 
     <!-- Installer UI: standard install-dir flow + the Sage connection-details dialog (ConfigDlg.wxs) -->
@@ -46,6 +47,9 @@
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="ProgramFilesFolder">
         <Directory Id="INSTALLFOLDER" Name="Rutter Sage 50 Connector" />
+      </Directory>
+      <Directory Id="ProgramMenuFolder">
+        <Directory Id="APPLICATIONPROGRAMMENUDIR" Name="Rutter Sage 50 Connector" />
       </Directory>
     </Directory>
   </Fragment>
@@ -120,6 +124,32 @@
       </Component>
       <Component Id="SystemValueTuple" Guid="{0CF3D46E-6A46-4DD0-9A78-6AEBC00BBE5E}">
         <File Id="System.ValueTuple.dll" Source="$(var.Sage50Connector.TargetDir)System.ValueTuple.dll" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <!--
+      Somewhere to click. The tray icon lands in Windows' overflow chevron by
+      default, so without this a customer has no obvious way to open the app.
+      Launching the exe while it is already running surfaces the existing
+      window rather than starting a second copy.
+
+      This component belongs to the Start Menu directory, so it must not live in
+      ProductComponents, whose inherited directory is INSTALLFOLDER.
+    -->
+    <ComponentGroup Id="ShortcutComponents" Directory="APPLICATIONPROGRAMMENUDIR">
+      <Component Id="Sage50ConnectorShortcut" Guid="{6C0B9F31-52A4-4D8E-B7A1-3F9C2E4D8A17}">
+        <Shortcut Id="Sage50ConnectorStartMenuShortcut"
+                  Name="Rutter Sage 50 Connector"
+                  Description="View Sage 50 sync status"
+                  Target="[INSTALLFOLDER]Sage50Connector.exe"
+                  WorkingDirectory="INSTALLFOLDER" />
+        <RemoveFolder Id="RemoveApplicationProgramMenuDir" On="uninstall" />
+        <RegistryValue Root="HKCU"
+                       Key="Software\Rutter\Sage50Connector"
+                       Name="shortcut"
+                       Type="integer"
+                       Value="1"
+                       KeyPath="yes" />
       </Component>
     </ComponentGroup>
   </Fragment>

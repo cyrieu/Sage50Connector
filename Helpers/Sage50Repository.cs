@@ -315,6 +315,78 @@ namespace Sage50Connector.Helpers
             return false;
         }
 
+        /// <summary>
+        /// Applies the supplied fields to an existing vendor and returns it as
+        /// Sage holds it afterwards.
+        ///
+        /// Only fields actually present on the request are written — a null means
+        /// "not supplied", not "clear this". Sage's own ID is immutable, so it is
+        /// the lookup key rather than something we can set.
+        /// </summary>
+        public VendorBody UpdateVendor(string companyName, string vendorId, VendorBody changes)
+        {
+            EnsureCompanyConnected(companyName);
+            if (CurrentCompanyDesconnected)
+            {
+                return null;
+            }
+
+            var vendorList = CompanyManager.Instance.CurrentCompany.Factories.VendorFactory.List();
+            vendorList.Load();
+            var vendor = vendorList.FirstOrDefault(v => v.ID == vendorId);
+            if (vendor == null)
+            {
+                throw new InvalidOperationException("No vendor with ID '" + vendorId + "' in company '" + companyName + "'.");
+            }
+
+            if (changes.Name != null) vendor.Name = changes.Name;
+            if (changes.Email != null) vendor.Email = changes.Email;
+            if (changes.TaxIDNumber != null) vendor.TaxIDNumber = changes.TaxIDNumber;
+            if (changes.WebSiteURL != null) vendor.WebSiteURL = changes.WebSiteURL;
+            if (changes.AccountNumber != null) vendor.AccountNumber = changes.AccountNumber;
+
+            vendor.Save();
+
+            return new VendorBody
+            {
+                AccountNumber = vendor.AccountNumber,
+                ID = vendor.ID,
+                Name = vendor.Name,
+                Email = vendor.Email,
+                TaxIDNumber = vendor.TaxIDNumber,
+                WebSiteURL = vendor.WebSiteURL,
+            };
+        }
+
+        /// <summary>
+        /// Deletes a vendor.
+        ///
+        /// Sage refuses to delete a vendor that has activity against it, which
+        /// surfaces as an exception from Delete() — that is a legitimate outcome
+        /// to report back, not something to swallow.
+        /// </summary>
+        public bool DeleteVendor(string companyName, string vendorId)
+        {
+            EnsureCompanyConnected(companyName);
+            if (CurrentCompanyDesconnected)
+            {
+                return false;
+            }
+
+            var vendorList = CompanyManager.Instance.CurrentCompany.Factories.VendorFactory.List();
+            vendorList.Load();
+            var vendor = vendorList.FirstOrDefault(v => v.ID == vendorId);
+            if (vendor == null)
+            {
+                // Already gone. Rutter's copy should still be removed, so this is
+                // success rather than an error.
+                return false;
+            }
+
+            vendor.Delete();
+            return true;
+        }
+
         public ChartofAccount CreateAccount(string companyName, ChartofAccount account)
         {
             EnsureCompanyConnected(companyName);

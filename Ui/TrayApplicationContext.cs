@@ -41,8 +41,26 @@ namespace Sage50Connector.Ui
 
             SyncStatus.Instance.Changed += OnStatusChanged;
 
+            // Create the window up front, on the UI thread, and keep it for the
+            // lifetime of the app. Everything else marshals onto it, so nothing
+            // ends up building a Form from a worker thread.
+            statusForm = new StatusForm();
+            statusForm.SyncNowRequested += (s, e) => RequestSyncNow();
+
             // The sync loop owns a Sage session, so keep it off the UI thread.
             Task.Run(() => Program.RunSyncLoopHeadless(syncNowSignal));
+
+            // Windows hides new tray icons behind the overflow chevron, so a
+            // customer who just installed this sees nothing at all. Show the
+            // window once on a fresh install so they know it exists and can find
+            // the icon; after that it starts quietly in the tray.
+            if (!HasRunBefore())
+            {
+                MarkHasRun();
+                ShowStatus();
+            }
+
+            ListenForShowRequests();
         }
 
         /// <summary>
@@ -84,21 +102,75 @@ namespace Sage50Connector.Ui
             }
         }
 
+        /// <summary>
+        /// Running the exe again is how someone asks to see the window; that
+        /// second process signals this event and exits.
+        /// </summary>
+        private void ListenForShowRequests()
+        {
+            var handle = new EventWaitHandle(false, EventResetMode.AutoReset, Program.ShowWindowEventName);
+            var thread = new Thread(() =>
+            {
+                while (true)
+                {
+                    try
+                    {
+                        handle.WaitOne();
+                        var form = statusForm;
+                        if (form != null && !form.IsDisposed)
+                        {
+                            form.BeginInvoke((Action)ShowStatus);
+                        }
+                    }
+                    catch { /* keep listening */ }
+                }
+            });
+            thread.IsBackground = true;
+            thread.SetApartmentState(ApartmentState.STA);
+            thread.Start();
+        }
+
+        private static string FirstRunMarker
+        {
+            get { return System.IO.Path.Combine(ConnectorConfig.ConfigDirectory, ".shown"); }
+        }
+
+        private static bool HasRunBefore()
+        {
+            try { return System.IO.File.Exists(FirstRunMarker); }
+            catch { return true; }
+        }
+
+        private static void MarkHasRun()
+        {
+            try
+            {
+                System.IO.Directory.CreateDirectory(ConnectorConfig.ConfigDirectory);
+                System.IO.File.WriteAllText(FirstRunMarker, DateTime.Now.ToString("o"));
+            }
+            catch { /* worst case we show the window again next launch */ }
+        }
+
         private void ShowStatus()
         {
-            if (statusForm == null || statusForm.IsDisposed)
-            {
-                statusForm = new StatusForm();
-                statusForm.SyncNowRequested += (s, e) => RequestSyncNow();
-            }
+            if (statusForm == null || statusForm.IsDisposed) return;
             statusForm.Show();
             statusForm.WindowState = FormWindowState.Normal;
             statusForm.Activate();
+            statusForm.BringToFront();
         }
 
+        /// <summary>
+        /// Cut the between-poll sleep short.
+        ///
+        /// This cannot force a sync: Rutter decides what work exists and the
+        /// connector only asks. If nothing is queued the poll comes back with
+        /// nothing to do — so say that, rather than leaving the button looking
+        /// broken.
+        /// </summary>
         private void RequestSyncNow()
         {
-            // The loop sleeps between polls; this wakes it early.
+            SyncStatus.Instance.SetChecking();
             syncNowSignal.Set();
         }
 
