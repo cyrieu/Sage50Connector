@@ -91,7 +91,18 @@ the access request Sage will present in step 5. Do not skip it.
 
 ### 5. Approve, without a human
 
-Only if step 4 said `Pending`. Delegate the GUI to a computer-use agent —
+Only if step 4 said `Pending`. **A rebuild with no source change does not need
+this** — the build is deterministic and Sage keys the grant to `MD5(exe)`, so
+identical bytes stay authorized. Only a real code change mints a new identity.
+
+To check what Sage currently has granted, without guessing:
+
+```powershell
+# one entry per approved binary; the base64 value is MD5(Sage50Connector.exe)
+C:\Sage\Peachtree\Company\<company>\APIACCSS.DAT
+```
+
+`scripts/grant-status.ps1` prints whether the current exe's hash is recorded. Delegate the GUI to a computer-use agent —
 `codex:codex-rescue` via the `Agent` tool, or any agent that can drive the Mac's
 Remote Desktop app:
 
