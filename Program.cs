@@ -125,7 +125,11 @@ namespace Sage50Connector
         /// runs after TerminateProcess — and a few of those exhaust the licence.
         /// Scripts that restart the connector should signal this and wait.
         /// </summary>
-        internal const string QuitEventName = @"Local\RutterSage50ConnectorQuit";
+        /// Global\ rather than Local\: Local names are scoped to a logon session,
+        /// and the scripts that restart the connector run as SYSTEM in session 0
+        /// while the connector runs in the interactive user's session. A Local
+        /// name is simply invisible to them.
+        internal const string QuitEventName = @"Global\RutterSage50ConnectorQuit";
 
         /// <summary>
         /// Only one connector may run per machine: two would each hold a Sage
@@ -460,6 +464,13 @@ namespace Sage50Connector
                             break;
                         case "NOOP":
                             WriteToFile(DateTime.Now + ": Received NOOP job, sleeping for 5 minutes.");
+                            // Hand the Sage connection back before going to sleep.
+                            // Sage licenses a limited number of concurrent
+                            // connections, and holding one for five idle minutes
+                            // wastes a seat the customer may need — and turns any
+                            // crash or kill during that window into a leaked seat.
+                            // Reopening costs a few seconds once every 5 minutes.
+                            Helpers.Sage50Connector.Instance.Shutdown();
                             Helpers.SyncStatus.Instance.SetNothingRequested();
                             await DelayInterruptible(TimeSpan.FromMinutes(5));
                             break;

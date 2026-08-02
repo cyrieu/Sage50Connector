@@ -14,7 +14,7 @@
 $running = Get-Process Sage50Connector -ErrorAction SilentlyContinue
 if ($running) {
   try {
-    $quit = [System.Threading.EventWaitHandle]::OpenExisting('Local\RutterSage50ConnectorQuit')
+    $quit = [System.Threading.EventWaitHandle]::OpenExisting('Global\RutterSage50ConnectorQuit')
     $quit.Set() | Out-Null
     if (-not $running.WaitForExit(20000)) {
       Write-Output 'graceful quit timed out; killing (this leaks a Sage seat)'

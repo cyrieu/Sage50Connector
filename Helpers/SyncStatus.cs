@@ -200,7 +200,13 @@ namespace Sage50Connector.Helpers
             lock (gate)
             {
                 state = ConnectorState.Error;
-                message = text;
+                // Sage's licence message is accurate but tells the reader nothing
+                // about what to do, and it is the one error most likely to be
+                // caused by us rather than by them.
+                message = text != null && text.IndexOf("License is currently unavailable", StringComparison.OrdinalIgnoreCase) >= 0
+                    ? "Sage 50 has no free connections. Close other Sage integrations, or restart the "
+                        + "\"Sage 50 Connect\" Windows service to release ones left behind by a crash."
+                    : text;
                 currentEntity = null;
             }
             Raise();
