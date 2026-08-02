@@ -37,7 +37,13 @@ namespace Sage50Connector
         /// <summary>
         /// Set by Rutter on follow-up pages: the record id the previous page
         /// stopped at. Null on the first page of a job.
+        ///
+        /// We echo parameters straight back on every report, and Rutter types
+        /// cursor as an optional string — which accepts the key being absent but
+        /// rejects an explicit null. Without Ignore, the first page of every job
+        /// is rejected with a 500 and nothing ever persists.
         /// </summary>
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
         public string cursor { get; set; }
     }
 
