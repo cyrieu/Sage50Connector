@@ -62,7 +62,9 @@ namespace Sage50ConnectorService
 
             try
             {
-                Sage50Connector.Program.Main(new string[0]);
+                // Explicitly the headless entry: Main with no arguments now starts
+                // the tray UI, which has nothing to attach to in a service session.
+                Sage50Connector.Program.RunSyncLoopHeadless();
             }
             catch (Exception ex)
             {

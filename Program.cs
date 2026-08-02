@@ -76,6 +76,17 @@ namespace Sage50Connector
 
         private static ConnectorConfig Config;
 
+        /// <summary>
+        /// Entry point.
+        ///
+        ///   --setup ...   provision sage50Config.json and exit
+        ///   --headless    run the sync loop with no UI (used by the service, and
+        ///                 handy for scripted testing on the VM)
+        ///   (no args)     run as a tray application — the normal way a customer
+        ///                 runs this, and the reason the exe is a WinExe: a console
+        ///                 window has no business appearing on someone's desktop
+        /// </summary>
+        [STAThread]
         public static int Main(string[] args)
         {
             if (args.Length > 0 && string.Equals(args[0], "--setup", StringComparison.OrdinalIgnoreCase))
@@ -83,6 +94,46 @@ namespace Sage50Connector
                 return RunSetupAsync(args).GetAwaiter().GetResult();
             }
 
+            bool headless = args.Length > 0
+                && (string.Equals(args[0], "--headless", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(args[0], "--console", StringComparison.OrdinalIgnoreCase));
+
+            if (!headless)
+            {
+                return RunTray();
+            }
+
+            return RunHeadless();
+        }
+
+        /// <summary>
+        /// Only one connector may run per machine: two would each hold a Sage
+        /// session, and Sage licenses a limited number of concurrent connections.
+        /// </summary>
+        private static int RunTray()
+        {
+            bool createdNew;
+            using (var single = new System.Threading.Mutex(true, @"Local\RutterSage50Connector", out createdNew))
+            {
+                if (!createdNew)
+                {
+                    System.Windows.Forms.MessageBox.Show(
+                        "The Rutter Sage 50 Connector is already running. Look for it in the notification area.",
+                        "Rutter Sage 50 Connector",
+                        System.Windows.Forms.MessageBoxButtons.OK,
+                        System.Windows.Forms.MessageBoxIcon.Information);
+                    return 0;
+                }
+
+                System.Windows.Forms.Application.EnableVisualStyles();
+                System.Windows.Forms.Application.SetCompatibleTextRenderingDefault(false);
+                System.Windows.Forms.Application.Run(new Ui.TrayApplicationContext());
+                return 0;
+            }
+        }
+
+        private static int RunHeadless()
+        {
             try
             {
                 Config = ConnectorConfig.Load();
@@ -93,10 +144,14 @@ namespace Sage50Connector
             catch (Exception ex)
             {
                 WriteToFile("Failed to load connector configuration: " + ex.Message);
+                Helpers.SyncStatus.Instance.SetError(
+                    "Not set up yet. " + ConnectorConfig.ConfigFilePath + " is missing or incomplete.");
                 return 1;
             }
 
             InstallSageSessionCleanup();
+            Helpers.SyncStatus.Instance.SetCompany(CompanyName);
+            Helpers.SyncStatus.Instance.SetIdle("Connecting…");
 
             WriteToFile(
                 "Loaded configuration from "
@@ -120,6 +175,47 @@ namespace Sage50Connector
                 ReleaseSageSession();
             }
             return 0;
+        }
+
+        /// <summary>
+        /// The sync loop, for hosts that supply their own UI (the tray app) or no
+        /// UI at all (the service). Loads config, reports status, and never throws
+        /// at the caller — a host should not die because a sync did.
+        /// </summary>
+        /// <param name="syncNow">
+        /// Optional: set by the host to cut a between-poll sleep short, so
+        /// "Sync now" does something immediately.
+        /// </param>
+        public static void RunSyncLoopHeadless(System.Threading.ManualResetEventSlim syncNow = null)
+        {
+            SyncNowSignal = syncNow;
+            try
+            {
+                RunHeadless();
+            }
+            catch (Exception ex)
+            {
+                WriteToFile("Sync loop ended unexpectedly: " + ex.Message);
+                Helpers.SyncStatus.Instance.SetError("Stopped: " + ex.Message);
+            }
+        }
+
+        private static System.Threading.ManualResetEventSlim SyncNowSignal;
+
+        /// <summary>
+        /// Sleep, but wake early if the user asked for a sync.
+        /// </summary>
+        private static async Task DelayInterruptible(TimeSpan delay)
+        {
+            var signal = SyncNowSignal;
+            if (signal == null)
+            {
+                await Task.Delay(delay);
+                return;
+            }
+
+            await Task.Run(() => signal.Wait(delay));
+            signal.Reset();
         }
 
         private static int sageSessionReleased;
@@ -312,7 +408,8 @@ namespace Sage50Connector
                             break;
                         case "NOOP":
                             WriteToFile(DateTime.Now + ": Received NOOP job, sleeping for 5 minutes.");
-                            await Task.Delay(TimeSpan.FromMinutes(5));
+                            Helpers.SyncStatus.Instance.SetIdle("Up to date. Checking again in 5 minutes.");
+                            await DelayInterruptible(TimeSpan.FromMinutes(5));
                             break;
                         default:
                             WriteToFile(DateTime.Now + ": Unknown job type: " + job.type);
@@ -332,6 +429,8 @@ namespace Sage50Connector
                         );
                         break;
                     }
+
+                    Helpers.SyncStatus.Instance.SetOffline("Cannot reach Rutter. Retrying…");
 
                     // 2s, 4s, 8s, 16s.
                     TimeSpan backoff = TimeSpan.FromSeconds(Math.Pow(2, consecutivePollFailures));
@@ -400,6 +499,11 @@ namespace Sage50Connector
                 var allRecords = GetEntityData(job.platform_entity, CompanyName, updatedAt);
                 var page = TakePage(allRecords, job.parameters, out string nextCursor);
 
+                Helpers.SyncStatus.Instance.SetSyncing(
+                    job.platform_entity,
+                    page == null ? 0 : page.Count,
+                    allRecords == null ? 0 : allRecords.Count);
+
                 if (page != null && page.Count > 0)
                 {
                     WriteToFile(
@@ -451,9 +555,15 @@ namespace Sage50Connector
                     });
 
                     await PostToRutterAsync(jsonString, AccessKey);
+
+                    if (nextCursor == null)
+                    {
+                        Helpers.SyncStatus.Instance.SetEntitySynced(job.platform_entity, allRecords.Count);
+                    }
                 }
                 else
                 {
+                    Helpers.SyncStatus.Instance.SetEntitySynced(job.platform_entity, 0);
                     WriteToFile(DateTime.Now + ": No " + job.platform_entity + "(s) to read. Please ensure Agent has permissions to Sage Company '" + CompanyName + "'");
                     var responseObject = new
                     {
@@ -478,6 +588,17 @@ namespace Sage50Connector
             }
             catch (Exception ex)
             {
+                // "Authorization result = Pending" is not a crash, it is a person
+                // needing to click something in Sage. Say so plainly.
+                if (ex.Message.IndexOf("Pending", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    Helpers.SyncStatus.Instance.SetNeedsAuthorization();
+                }
+                else
+                {
+                    Helpers.SyncStatus.Instance.SetError(ex.Message);
+                }
+
                 WriteToFile(DateTime.Now + ": Error handling LIST_FETCH job for " + job.platform_entity + ". Error: " + ex.Message);
                 // parameters must be echoed back even on the error path: Rutter
                 // validates a LIST_FETCH report against a schema that requires it,
