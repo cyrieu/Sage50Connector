@@ -82,6 +82,29 @@ connector upgrade re-prompts every user. Investigate before shipping updates.
 When iterating locally, avoid needless rebuilds — restarting the existing binary
 is free.
 
+### The approval cannot be automated
+
+Attempted 2026-08-02 and abandoned; do not spend the afternoon on it again:
+
+- **UI Automation** (`System.Windows.Automation`) driven from PowerShell in the
+  interactive session works in general, and can enumerate the Sage window — but
+  Sage 50 exposes only static text panes
+  (`WindowsForms10.STATIC.app...`) and no invokable buttons. There is nothing
+  for `InvokePattern` to click.
+- **Screenshot-guided coordinate clicking** is blocked by Windows Defender:
+  capturing the screen and base64-encoding it trips
+  `ScriptContainedMaliciousContent`. Do not try to work around the AV.
+- **Codex / remote agents** run sandboxed without outbound Azure access and
+  cannot reach the VM at all.
+
+Treat human approval as a hard requirement of the product: it must be a
+documented install step, and it blocks any silent auto-update story.
+
+Note that killing `Peachw.exe` and relaunching it brings Sage back to the
+**welcome screen with no company open**, which is *not* equivalent to
+File → Close Company followed by reopening. No company open means no access
+prompt, no matter how many requests are pending.
+
 ### The connector must run as the user who approved Sage
 
 Sage records the grant per Windows user.
