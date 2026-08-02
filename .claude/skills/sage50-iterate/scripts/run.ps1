@@ -9,8 +9,35 @@
 # approval caches its failed PeachtreeSession, and because it wakes every five
 # minutes on NOOP it will grab freshly enqueued jobs and fail them before this
 # run sees them.
-Get-Process Sage50Connector -ErrorAction SilentlyContinue | Stop-Process -Force
+# Ask the running instance to quit so it hands its Sage session back. Killing it
+# leaks the connection seat, and a few of those exhaust the licence.
+$running = Get-Process Sage50Connector -ErrorAction SilentlyContinue
+if ($running) {
+  try {
+    $quit = [System.Threading.EventWaitHandle]::OpenExisting('Local\RutterSage50ConnectorQuit')
+    $quit.Set() | Out-Null
+    if (-not $running.WaitForExit(20000)) {
+      Write-Output 'graceful quit timed out; killing (this leaks a Sage seat)'
+      $running | Stop-Process -Force
+    } else {
+      Write-Output 'previous instance exited cleanly'
+    }
+  } catch {
+    # Older build with no quit listener.
+    Write-Output 'no quit signal available; killing (this leaks a Sage seat)'
+    $running | Stop-Process -Force
+  }
+}
 Start-Sleep -Seconds 3
+
+# Belt and braces: reclaim any seats leaked by earlier hard kills or crashes.
+$connectSvc = Get-Service | Where-Object {
+  $_.DisplayName -match 'Sage 50 Connect|Peachtree' -and $_.Status -eq 'Running'
+}
+foreach ($s in $connectSvc) {
+  Restart-Service -Name $s.Name -Force -ErrorAction Continue
+}
+if ($connectSvc) { Start-Sleep -Seconds 8 }
 
 $log = Join-Path $env:ProgramData 'Rutter\Sage50Connector\log.txt'
 if (Test-Path $log) { Remove-Item $log -Force }
