@@ -307,8 +307,14 @@ namespace Sage50Connector
                         data = data,
                     };
 
-                    var jsonObject = JObject.FromObject(responseObject);
-                    string jsonString = JsonConvert.SerializeObject(jsonObject, new JsonSerializerSettings
+                    // Serialize the payload directly. Going through
+                    // JObject.FromObject first materialises the property names
+                    // with Sage's own casing (ID, Name, IsInactive), and a
+                    // ContractResolver has no effect when serializing a JObject -
+                    // the names are already fixed. Rutter extracts the primary key
+                    // from $.id, so PascalCase names left every record with a null
+                    // platform_id and 156 accounts collapsed onto a single row.
+                    string jsonString = JsonConvert.SerializeObject(responseObject, new JsonSerializerSettings
                     {
                         ContractResolver = new Newtonsoft.Json.Serialization.CamelCasePropertyNamesContractResolver()
                     });
