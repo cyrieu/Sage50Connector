@@ -23,6 +23,24 @@
     <UIRef Id="WixUI_InstallDir" />
     <UIRef Id="WixUI_ErrorProgressText" />
 
+    <!--
+      Service identity. Sage 50 records third-party access per Windows user, so
+      the service only works when it runs as the account that clicked Always
+      Allow Access. Supply it at install time:
+
+        msiexec /i RutterSage50ConnectorSetup.msi ^
+          SERVICEACCOUNT="MACHINE\SageUser" SERVICEPASSWORD="..."
+
+      The LocalSystem default exists so the package still installs unattended;
+      under it the service will never authorize, which is why the service is
+      installed Start="demand" rather than started automatically.
+    -->
+    <Property Id="SERVICEACCOUNT" Value="LocalSystem" />
+    <Property Id="SERVICEPASSWORD" Secure="yes" Hidden="yes" />
+    <Condition Message="SERVICEPASSWORD is required when SERVICEACCOUNT is not LocalSystem.">
+      <![CDATA[SERVICEACCOUNT = "LocalSystem" OR SERVICEPASSWORD]]>
+    </Condition>
+
     <!-- Deferred custom action that writes sage50Config.json from COMPANYNAME/ACCESSKEY/CONNECTIONID -->
     <Binary Id="WriteSageConfigJsonCA"
             SourceFile="$(var.Sage50ConnectorSetupCustomActions.TargetDir)$(var.Sage50ConnectorSetupCustomActions.TargetName).CA.dll" />
@@ -57,14 +75,25 @@
         <File Id="Sage50ConnectorService.exe"
               Source="$(var.Sage50ConnectorService.TargetDir)Sage50ConnectorService.exe"
               KeyPath="yes" />
+        <!--
+          The service must run as the Windows user who granted the connector
+          access in Sage 50. Sage records that grant per user: running as
+          LocalSystem returns "Authorization result = Pending" forever, even on a
+          machine where an interactive user has already clicked Always Allow
+          Access. SERVICEACCOUNT/SERVICEPASSWORD are collected at install time
+          (see the properties above); Start="demand" so a wrong credential does
+          not fail the install, and the operator can start the service once the
+          Sage grant is in place.
+        -->
         <ServiceInstall Id="Sage50ConnectorServiceInstall"
                         Type="ownProcess"
                         Name="Sage50ConnectorService"
                         DisplayName="Rutter Sage 50 Connector"
                         Description="Polls Rutter for Sage 50 jobs and relays them to the local Sage 50 desktop application via the Sage SDK."
-                        Start="auto"
+                        Start="demand"
                         ErrorControl="normal"
-                        Account="LocalSystem" />
+                        Account="[SERVICEACCOUNT]"
+                        Password="[SERVICEPASSWORD]" />
         <ServiceControl Id="Sage50ConnectorServiceControl"
                         Name="Sage50ConnectorService"
                         Start="install"

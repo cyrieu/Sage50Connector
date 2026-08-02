@@ -33,6 +33,12 @@ namespace Sage50Connector
     {
         public string updated_at { get; set; }
         public int limit { get; set; }
+
+        /// <summary>
+        /// Set by Rutter on follow-up pages: the record id the previous page
+        /// stopped at. Null on the first page of a job.
+        /// </summary>
+        public string cursor { get; set; }
     }
 
     public class VendorBody
@@ -197,9 +203,20 @@ namespace Sage50Connector
         /// </summary>
         private static readonly TimeSpan PollDelay = TimeSpan.FromSeconds(2);
 
+        /// <summary>
+        /// How many consecutive failed polls to ride out before giving up. A single
+        /// blip - Rutter restarting, the tunnel dropping, the machine waking from
+        /// sleep - used to end the process for good, because a null job broke the
+        /// loop. Retrying a few times with backoff survives that; exiting after a
+        /// sustained outage is still correct, since the service restarts us a
+        /// minute later and a one-shot run should not spin forever.
+        /// </summary>
+        private const int MaxConsecutivePollFailures = 5;
+
         static async Task MainAsync(string AccessKey, string CompanyName, string ConnectionId)
         {
             bool firstIteration = true;
+            int consecutivePollFailures = 0;
             while (true)
             {
                 if (!firstIteration)
@@ -214,6 +231,7 @@ namespace Sage50Connector
 
                 if (job != null)
                 {
+                    consecutivePollFailures = 0;
                     switch (job.type)
                     {
                         case "LIST_FETCH":
@@ -236,8 +254,31 @@ namespace Sage50Connector
                 }
                 else
                 {
-                    WriteToFile(DateTime.Now + ": No job available.");
-                    break;
+                    consecutivePollFailures++;
+                    if (consecutivePollFailures >= MaxConsecutivePollFailures)
+                    {
+                        WriteToFile(
+                            DateTime.Now
+                                + ": Could not reach Rutter after "
+                                + consecutivePollFailures
+                                + " attempts. Exiting; the service will start us again."
+                        );
+                        break;
+                    }
+
+                    // 2s, 4s, 8s, 16s.
+                    TimeSpan backoff = TimeSpan.FromSeconds(Math.Pow(2, consecutivePollFailures));
+                    WriteToFile(
+                        DateTime.Now
+                            + ": Poll failed ("
+                            + consecutivePollFailures
+                            + " of "
+                            + MaxConsecutivePollFailures
+                            + "); retrying in "
+                            + backoff.TotalSeconds
+                            + "s."
+                    );
+                    await Task.Delay(backoff);
                 }
                 WriteToFile(DateTime.Now + ": Process Ended.");
                 WriteToFile("###################################################################################################################");
@@ -289,23 +330,46 @@ namespace Sage50Connector
             try
             {
                 var updatedAt = job.parameters.updated_at;
-                var data = GetEntityData(job.platform_entity, CompanyName, updatedAt);
+                var allRecords = GetEntityData(job.platform_entity, CompanyName, updatedAt);
+                var page = TakePage(allRecords, job.parameters, out string nextCursor);
 
-                if (data != null && data.Count > 0)
+                if (page != null && page.Count > 0)
                 {
-                    WriteToFile(DateTime.Now + ": Fetched " + data.Count + " " + job.platform_entity + "(s) from Sage 50 Company: '" + CompanyName + "'");
-                    var responseObject = new
+                    WriteToFile(
+                        DateTime.Now
+                            + ": Fetched " + page.Count + " of " + allRecords.Count + " "
+                            + job.platform_entity + "(s) from Sage 50 Company: '" + CompanyName + "'"
+                            + (nextCursor == null ? " (final page)" : "; next_cursor=" + nextCursor)
+                    );
+                    // next_cursor has to be absent, not null, on the final page:
+                    // Rutter types it as an optional string, which accepts a missing
+                    // key but rejects an explicit null.
+                    object responseObject;
+                    if (nextCursor == null)
                     {
-                        connection = new
+                        responseObject = new
                         {
-                            id = ConnectionId
-                        },
-                        job_id = job.job_id,
-                        type = job.type,
-                        platform_entity = job.platform_entity,
-                        parameters = job.parameters,
-                        data = data,
-                    };
+                            connection = new { id = ConnectionId },
+                            job_id = job.job_id,
+                            type = job.type,
+                            platform_entity = job.platform_entity,
+                            parameters = job.parameters,
+                            data = page,
+                        };
+                    }
+                    else
+                    {
+                        responseObject = new
+                        {
+                            connection = new { id = ConnectionId },
+                            job_id = job.job_id,
+                            type = job.type,
+                            platform_entity = job.platform_entity,
+                            parameters = job.parameters,
+                            data = page,
+                            next_cursor = nextCursor,
+                        };
+                    }
 
                     // Serialize the payload directly. Going through
                     // JObject.FromObject first materialises the property names
@@ -371,6 +435,60 @@ namespace Sage50Connector
 
                 await PostToRutterAsync(jsonString, AccessKey);
             }
+        }
+
+        /// <summary>
+        /// Cuts one page out of the records Sage gave us.
+        ///
+        /// Rutter sends a limit (and, after the first page, the id the last page
+        /// ended on) and completes the job only when we answer without a
+        /// next_cursor. The connector used to ignore both and post everything in a
+        /// single body, which is survivable for a sample company and not for a real
+        /// ledger.
+        ///
+        /// Paging is keyed on the record id rather than an offset: Sage is a live
+        /// database, and an offset silently skips a record whenever something is
+        /// inserted earlier in the order between pages.
+        /// </summary>
+        private static List<object> TakePage(List<object> records, Parameters parameters, out string nextCursor)
+        {
+            nextCursor = null;
+            if (records == null)
+            {
+                return new List<object>();
+            }
+
+            var ordered = records
+                .OrderBy(record => GetRecordId(record), StringComparer.Ordinal)
+                .ToList();
+
+            if (!string.IsNullOrEmpty(parameters?.cursor))
+            {
+                ordered = ordered
+                    .Where(record => StringComparer.Ordinal.Compare(GetRecordId(record), parameters.cursor) > 0)
+                    .ToList();
+            }
+
+            int limit = parameters != null && parameters.limit > 0 ? parameters.limit : ordered.Count;
+            if (ordered.Count > limit)
+            {
+                var page = ordered.Take(limit).ToList();
+                nextCursor = GetRecordId(page[page.Count - 1]);
+                return page;
+            }
+
+            return ordered;
+        }
+
+        /// <summary>
+        /// Every record we send Rutter carries an ID property (AccountBody,
+        /// ChartofVendor, ChartofCustomer). Reflection keeps the paging code from
+        /// having to know which one it is holding.
+        /// </summary>
+        private static string GetRecordId(object record)
+        {
+            var property = record?.GetType().GetProperty("ID");
+            return property?.GetValue(record)?.ToString() ?? string.Empty;
         }
 
         private static List<object> GetEntityData(string entity, string companyName, string updatedAt)
