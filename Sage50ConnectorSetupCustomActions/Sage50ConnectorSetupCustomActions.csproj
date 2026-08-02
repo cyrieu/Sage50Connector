@@ -41,6 +41,9 @@
     <Compile Include="CustomActions.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="CustomAction.config" />
+  </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!--
     Pack the managed CA into an unmanaged SFX custom-action DLL that MSI can
@@ -54,12 +57,17 @@
       <SfxCADll>$(WixSdkDir)\x86\sfxca.dll</SfxCADll>
       <WindowsInstallerDll>$(WixSdkDir)\Microsoft.Deployment.WindowsInstaller.dll</WindowsInstallerDll>
       <PackedCustomAction>$(TargetDir)$(TargetName).CA.dll</PackedCustomAction>
+      <!-- Tells sfxca.dll to host the v4 CLR; without it the managed class
+           will not load at install time. Must be named CustomAction.config. -->
+      <CustomActionConfig>$(ProjectDir)CustomAction.config</CustomActionConfig>
     </PropertyGroup>
     <Error Condition="!Exists('$(MakeSfxCAExe)')"
            Text="MakeSfxCA.exe not found at '$(MakeSfxCAExe)'. Install WiX Toolset v3.11 SDK/build tools." />
     <Error Condition="!Exists('$(SfxCADll)')"
            Text="sfxca.dll not found at '$(SfxCADll)'." />
-    <Exec Command="&quot;$(MakeSfxCAExe)&quot; &quot;$(PackedCustomAction)&quot; &quot;$(SfxCADll)&quot; &quot;$(TargetPath)&quot; &quot;$(WindowsInstallerDll)&quot;" />
+    <Error Condition="!Exists('$(CustomActionConfig)')"
+           Text="CustomAction.config not found at '$(CustomActionConfig)'. It is required for a .NET 4.x custom action." />
+    <Exec Command="&quot;$(MakeSfxCAExe)&quot; &quot;$(PackedCustomAction)&quot; &quot;$(SfxCADll)&quot; &quot;$(TargetPath)&quot; &quot;$(WindowsInstallerDll)&quot; &quot;$(CustomActionConfig)&quot;" />
     <Message Importance="high" Text="Packed custom action: $(PackedCustomAction)" />
   </Target>
 </Project>
