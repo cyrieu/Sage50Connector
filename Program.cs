@@ -22,6 +22,9 @@ namespace Sage50Connector
         public string job_id { get; set; }
         public object body { get; set; }
         public CreateBody create_body { get; set; }
+
+        /// <summary>Fields to apply, on an UPDATE job.</summary>
+        public object update_body { get; set; }
     }
 
     class CreateBody
@@ -45,6 +48,10 @@ namespace Sage50Connector
         /// </summary>
         [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
         public string cursor { get; set; }
+
+        /// <summary>The record an ID_FETCH, UPDATE or DELETE job targets.</summary>
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public string platform_id { get; set; }
     }
 
     public class VendorBody
@@ -107,6 +114,11 @@ namespace Sage50Connector
         }
 
         /// <summary>
+        /// Signal used by a second launch to surface the running instance's window.
+        /// </summary>
+        internal const string ShowWindowEventName = @"Local\RutterSage50ConnectorShow";
+
+        /// <summary>
         /// Only one connector may run per machine: two would each hold a Sage
         /// session, and Sage licenses a limited number of concurrent connections.
         /// </summary>
@@ -117,11 +129,25 @@ namespace Sage50Connector
             {
                 if (!createdNew)
                 {
-                    System.Windows.Forms.MessageBox.Show(
-                        "The Rutter Sage 50 Connector is already running. Look for it in the notification area.",
-                        "Rutter Sage 50 Connector",
-                        System.Windows.Forms.MessageBoxButtons.OK,
-                        System.Windows.Forms.MessageBoxIcon.Information);
+                    // Launching it again is how a person asks to see it - the tray
+                    // icon is easy to miss behind Windows' overflow chevron. Poke
+                    // the instance that is already running and get out of the way.
+                    try
+                    {
+                        using (var show = System.Threading.EventWaitHandle.OpenExisting(ShowWindowEventName))
+                        {
+                            show.Set();
+                        }
+                    }
+                    catch
+                    {
+                        System.Windows.Forms.MessageBox.Show(
+                            "The Rutter Sage 50 Connector is already running. Look for it in the notification area "
+                                + "(click the ^ arrow next to the clock).",
+                            "Rutter Sage 50 Connector",
+                            System.Windows.Forms.MessageBoxButtons.OK,
+                            System.Windows.Forms.MessageBoxIcon.Information);
+                    }
                     return 0;
                 }
 
@@ -405,14 +431,35 @@ namespace Sage50Connector
                             {
                                 await HandleCreateVendorJob(job, AccessKey, CompanyName);
                             }
+                            else
+                            {
+                                await ReportUnsupportedJob(job, AccessKey,
+                                    "CREATE is not supported for " + job.platform_entity + ".");
+                            }
+                            break;
+
+                        case "ID_FETCH":
+                            await HandleIdFetchJob(job, AccessKey, CompanyName);
+                            break;
+
+                        case "UPDATE":
+                            await HandleUpdateVendorJob(job, AccessKey, CompanyName);
+                            break;
+
+                        case "DELETE":
+                            await HandleDeleteVendorJob(job, AccessKey, CompanyName);
                             break;
                         case "NOOP":
                             WriteToFile(DateTime.Now + ": Received NOOP job, sleeping for 5 minutes.");
-                            Helpers.SyncStatus.Instance.SetIdle("Up to date. Checking again in 5 minutes.");
+                            Helpers.SyncStatus.Instance.SetNothingRequested();
                             await DelayInterruptible(TimeSpan.FromMinutes(5));
                             break;
                         default:
-                            WriteToFile(DateTime.Now + ": Unknown job type: " + job.type);
+                            // Must report, not just log. An unreported job stays
+                            // IN_PROGRESS and Rutter hands it back on every poll
+                            // forever.
+                            await ReportUnsupportedJob(job, AccessKey,
+                                "Job type '" + job.type + "' is not supported by this connector.");
                             break;
                     }
                 }
@@ -714,6 +761,206 @@ namespace Sage50Connector
 
             WriteToFile(DateTime.Now + $": Returning {data.Count} {entity}(s) after filtering.");
             return data;
+        }
+
+        /// <summary>
+        /// Tells Rutter we cannot service a job, so it reaches a terminal state
+        /// instead of being re-served on every poll.
+        /// </summary>
+        private static async Task ReportUnsupportedJob(ResponseObject job, string AccessKey, string reason)
+        {
+            WriteToFile(DateTime.Now + ": " + reason);
+            Helpers.SyncStatus.Instance.SetError(reason);
+
+            var errorObject = new
+            {
+                connection = new { id = ConnectionId },
+                job_id = job.job_id,
+                type = job.type,
+                platform_entity = job.platform_entity,
+                parameters = job.parameters,
+                error_message = reason,
+            };
+
+            await PostToRutterAsync(Serialize(errorObject), AccessKey);
+        }
+
+        /// <summary>
+        /// Reads one record back from Sage by its id. Rutter uses this to confirm
+        /// what a write actually produced, rather than trusting what it sent.
+        /// </summary>
+        private static async Task HandleIdFetchJob(ResponseObject job, string AccessKey, string companyName)
+        {
+            WriteToFile(DateTime.Now + ": Handling ID_FETCH job for " + job.platform_entity);
+            try
+            {
+                if (job.platform_entity != "VENDORS")
+                {
+                    await ReportUnsupportedJob(job, AccessKey,
+                        "ID_FETCH is not supported for " + job.platform_entity + ".");
+                    return;
+                }
+
+                string platformId = job.parameters?.platform_id;
+                if (string.IsNullOrEmpty(platformId))
+                {
+                    await ReportUnsupportedJob(job, AccessKey, "ID_FETCH job did not include a platform_id.");
+                    return;
+                }
+
+                Helpers.SyncStatus.Instance.SetSyncing(job.platform_entity, 0, 1);
+                var vendor = Sage50Repository.Instance.GetVendorById(companyName, platformId);
+                var data = vendor == null ? new List<VendorBody>() : new List<VendorBody> { vendor };
+                WriteToFile(DateTime.Now + ": ID_FETCH found " + data.Count + " vendor(s) for id '" + platformId + "'");
+
+                await PostToRutterAsync(Serialize(new
+                {
+                    connection = new { id = ConnectionId },
+                    job_id = job.job_id,
+                    type = job.type,
+                    platform_entity = job.platform_entity,
+                    parameters = job.parameters,
+                    data = data,
+                }), AccessKey);
+
+                Helpers.SyncStatus.Instance.SetEntitySynced(job.platform_entity, data.Count);
+            }
+            catch (Exception ex)
+            {
+                await ReportJobError(job, AccessKey, ex);
+            }
+        }
+
+        /// <summary>
+        /// Applies an update in Sage, then reports the record as Sage holds it
+        /// afterwards.
+        /// </summary>
+        private static async Task HandleUpdateVendorJob(ResponseObject job, string AccessKey, string companyName)
+        {
+            WriteToFile(DateTime.Now + ": Handling UPDATE job for " + job.platform_entity);
+            try
+            {
+                if (job.platform_entity != "VENDORS")
+                {
+                    await ReportUnsupportedJob(job, AccessKey,
+                        "UPDATE is not supported for " + job.platform_entity + ".");
+                    return;
+                }
+
+                string platformId = job.parameters?.platform_id;
+                if (string.IsNullOrEmpty(platformId))
+                {
+                    await ReportUnsupportedJob(job, AccessKey, "UPDATE job did not include a platform_id.");
+                    return;
+                }
+                if (job.update_body == null)
+                {
+                    await ReportUnsupportedJob(job, AccessKey, "UPDATE job did not include an update_body.");
+                    return;
+                }
+
+                Helpers.SyncStatus.Instance.SetSyncing(job.platform_entity, 0, 1);
+                var changes = JsonConvert.DeserializeObject<VendorBody>(job.update_body.ToString());
+                var updated = Sage50Repository.Instance.UpdateVendor(companyName, platformId, changes);
+                WriteToFile(DateTime.Now + ": Updated vendor '" + platformId + "' in Sage 50");
+
+                await PostToRutterAsync(Serialize(new
+                {
+                    connection = new { id = ConnectionId },
+                    job_id = job.job_id,
+                    type = job.type,
+                    platform_entity = job.platform_entity,
+                    parameters = job.parameters,
+                    data = new List<VendorBody> { updated },
+                }), AccessKey);
+
+                Helpers.SyncStatus.Instance.SetEntitySynced(job.platform_entity, 1);
+            }
+            catch (Exception ex)
+            {
+                await ReportJobError(job, AccessKey, ex);
+            }
+        }
+
+        private static async Task HandleDeleteVendorJob(ResponseObject job, string AccessKey, string companyName)
+        {
+            WriteToFile(DateTime.Now + ": Handling DELETE job for " + job.platform_entity);
+            try
+            {
+                if (job.platform_entity != "VENDORS")
+                {
+                    await ReportUnsupportedJob(job, AccessKey,
+                        "DELETE is not supported for " + job.platform_entity + ".");
+                    return;
+                }
+
+                string platformId = job.parameters?.platform_id;
+                if (string.IsNullOrEmpty(platformId))
+                {
+                    await ReportUnsupportedJob(job, AccessKey, "DELETE job did not include a platform_id.");
+                    return;
+                }
+
+                Helpers.SyncStatus.Instance.SetSyncing(job.platform_entity, 0, 1);
+                bool deleted = Sage50Repository.Instance.DeleteVendor(companyName, platformId);
+                WriteToFile(DateTime.Now + ": DELETE vendor '" + platformId + "' - "
+                    + (deleted ? "removed" : "no such vendor, treating as already deleted"));
+
+                await PostToRutterAsync(Serialize(new
+                {
+                    connection = new { id = ConnectionId },
+                    job_id = job.job_id,
+                    type = job.type,
+                    platform_entity = job.platform_entity,
+                    parameters = job.parameters,
+                    platform_id = platformId,
+                }), AccessKey);
+            }
+            catch (Exception ex)
+            {
+                await ReportJobError(job, AccessKey, ex);
+            }
+        }
+
+        /// <summary>
+        /// Reports a job failure, distinguishing "Sage has not authorized us" from
+        /// a genuine error so the UI can say something useful.
+        /// </summary>
+        private static async Task ReportJobError(ResponseObject job, string AccessKey, Exception ex)
+        {
+            if (ex.Message.IndexOf("Pending", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                Helpers.SyncStatus.Instance.SetNeedsAuthorization();
+            }
+            else
+            {
+                Helpers.SyncStatus.Instance.SetError(ex.Message);
+            }
+
+            WriteToFile(DateTime.Now + ": Error handling " + job.type + " job for " + job.platform_entity + ". Error: " + ex.Message);
+
+            await PostToRutterAsync(Serialize(new
+            {
+                connection = new { id = ConnectionId },
+                job_id = job.job_id,
+                type = job.type,
+                platform_entity = job.platform_entity,
+                parameters = job.parameters,
+                error_message = ex.Message,
+            }), AccessKey);
+        }
+
+        /// <summary>
+        /// Serialize a payload for Rutter. Always the anonymous object directly —
+        /// see the note in HandleListFetchJob about JObject.FromObject silently
+        /// discarding the camelCase resolver.
+        /// </summary>
+        private static string Serialize(object payload)
+        {
+            return JsonConvert.SerializeObject(payload, new JsonSerializerSettings
+            {
+                ContractResolver = new Newtonsoft.Json.Serialization.CamelCasePropertyNamesContractResolver()
+            });
         }
 
         private static async Task HandleCreateVendorJob(ResponseObject job, string AccessKey, string companyName)
