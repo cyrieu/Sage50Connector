@@ -119,6 +119,15 @@ namespace Sage50Connector
         internal const string ShowWindowEventName = @"Local\RutterSage50ConnectorShow";
 
         /// <summary>
+        /// Ask a running instance to shut down cleanly.
+        ///
+        /// Killing the process instead leaks its Sage connection seat — no handler
+        /// runs after TerminateProcess — and a few of those exhaust the licence.
+        /// Scripts that restart the connector should signal this and wait.
+        /// </summary>
+        internal const string QuitEventName = @"Local\RutterSage50ConnectorQuit";
+
+        /// <summary>
         /// Only one connector may run per machine: two would each hold a Sage
         /// session, and Sage licenses a limited number of concurrent connections.
         /// </summary>

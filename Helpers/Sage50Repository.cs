@@ -447,8 +447,13 @@ namespace Sage50Connector.Helpers
             if (!CurrentCompanyDesconnected)
             {
                 var vendorFactory = CompanyManager.Instance.CurrentCompany.Factories.VendorFactory;
-                // Get the list of all vendors
                 var vendors = vendorFactory.List();
+                // Load() is not optional: the list is lazy, so without it the
+                // enumeration is empty and every lookup returns null. That made
+                // ID_FETCH always answer "not found", and made CREATE fail to read
+                // back the vendor it had just written — leaving the record in Sage
+                // but the job unreported, so a retry then hit a duplicate key.
+                vendors.Load();
 
                 // Find the vendor with the matching ID
                 var vendor = vendors.FirstOrDefault(v => v.ID == vendorId);

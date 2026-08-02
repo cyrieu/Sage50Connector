@@ -61,6 +61,7 @@ namespace Sage50Connector.Ui
             }
 
             ListenForShowRequests();
+            ListenForQuitRequests();
         }
 
         /// <summary>
@@ -124,6 +125,31 @@ namespace Sage50Connector.Ui
                     }
                     catch { /* keep listening */ }
                 }
+            });
+            thread.IsBackground = true;
+            thread.SetApartmentState(ApartmentState.STA);
+            thread.Start();
+        }
+
+        /// <summary>
+        /// Lets a script stop the connector without killing it, so the Sage
+        /// session is handed back instead of leaked.
+        /// </summary>
+        private void ListenForQuitRequests()
+        {
+            var handle = new EventWaitHandle(false, EventResetMode.AutoReset, Program.QuitEventName);
+            var thread = new Thread(() =>
+            {
+                try
+                {
+                    handle.WaitOne();
+                    var form = statusForm;
+                    if (form != null && !form.IsDisposed)
+                    {
+                        form.BeginInvoke((Action)ExitConnector);
+                    }
+                }
+                catch { /* falling back to being killed is no worse than before */ }
             });
             thread.IsBackground = true;
             thread.SetApartmentState(ApartmentState.STA);
