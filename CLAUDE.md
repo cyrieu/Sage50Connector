@@ -302,13 +302,36 @@ survives a short restart, but a long outage still exits the process by design.
 - **MSI is unsigned** — SmartScreen will block it.
 - **Service account must be supplied at install** (`SERVICEACCOUNT`,
   `SERVICEPASSWORD`); the service installs `Start="demand"` and will not sync
-  under the `LocalSystem` default. The install path has not been tested end to end.
+  under the `LocalSystem` default. Installing with a real service account has
+  not been exercised — only the LocalSystem default path was tested.
 - **No auto-update mechanism.**
 - **Entity coverage is accounts/vendors/customers read plus CREATE vendor.** No
   invoices, bills, payments, or journal entries.
 - **One install serves one company** — `CompanyName` is a single value.
 - Inbound access token is stored plaintext in `%ProgramData%` and logged
   plaintext by the backend's ingest middleware (deliberately deferred).
+
+## Installing the MSI
+
+```
+msiexec /i RutterSage50ConnectorSetup.msi /qn ^
+  COMPANYNAME="Bellwether Garden Supply" ACCESSKEY=iat_... CONNECTIONID=<itemId> ^
+  SERVICEACCOUNT="MACHINE\SageUser" SERVICEPASSWORD="..." ^
+  /l*v install.log
+```
+
+`COMPANYNAME`/`ACCESSKEY`/`CONNECTIONID` are written to `sage50Config.json` by
+the `WriteSageConfigJson` custom action; omit them and provision later with
+`--setup`. Omit `SERVICEACCOUNT` and the service installs as `LocalSystem`,
+which cannot authorize against Sage.
+
+The service is **not** started by the installer. Grant Sage access as the
+service account first, then `sc start Sage50ConnectorService`.
+
+**A successful build proves nothing about the installer.** The custom action
+failed to load for a while and every build was green — only `msiexec` surfaced
+it. Test with an actual install, and read `/l*v` output; a bare 1603 hides the
+real error further up the log.
 
 ## Connector-side pitfalls already fixed — do not regress
 

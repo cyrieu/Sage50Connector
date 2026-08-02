@@ -94,9 +94,15 @@
                         ErrorControl="normal"
                         Account="[SERVICEACCOUNT]"
                         Password="[SERVICEPASSWORD]" />
+        <!--
+          Deliberately no Start="install": the service cannot authorize against
+          Sage until someone has clicked Always Allow Access as the account it
+          runs under, so starting it here just puts a failing service on the box.
+          Start it once Sage access is granted:
+              sc start Sage50ConnectorService
+        -->
         <ServiceControl Id="Sage50ConnectorServiceControl"
                         Name="Sage50ConnectorService"
-                        Start="install"
                         Stop="both"
                         Remove="uninstall"
                         Wait="yes" />
