@@ -79,6 +79,39 @@ az vm run-command invoke -g MICROSOFTGREATPLAINS_GROUP -n microsoftgreatplains \
 Only one run-command executes at a time; a second returns `Conflict`, and a
 timed-out extension can wedge the channel for several minutes.
 
+### Signed release build
+
+`build.ps1` produces unsigned development artifacts. Customer releases must use
+the existing Rutter Azure Artifact Signing account to sign both the installed
+executable and the MSI. Run the release from an interactive PowerShell session
+on the VM so Azure CLI can use the signed-in release identity.
+
+Install the release tools once from an elevated PowerShell window:
+
+```powershell
+Set-Location C:\src\Sage50Connector
+.\.claude\skills\sage50-iterate\scripts\install-release-tools.ps1
+```
+
+Open a new PowerShell window, authenticate, and create the release:
+
+```powershell
+az login
+.\.claude\skills\sage50-iterate\scripts\release.ps1
+```
+
+`release.ps1` selects the `Azure Signing Certificate` subscription and uses:
+
+- endpoint `https://eus.codesigning.azure.net`
+- signing account `RutterSigning`
+- certificate profile `DynamicsCertificate`
+
+The release order is fixed: rebuild, sign `Sage50Connector.exe`, package the MSI
+without rebuilding project references, sign the MSI, verify both Authenticode
+signatures, and print SHA-256 checksums. Do not rebuild, re-sign, or modify the
+artifacts afterward. Signing changes the executable's MD5, so perform Sage
+approval and final testing against that exact signed EXE.
+
 ## Sage authorization — the thing that will waste your afternoon
 
 On first access the Sage API returns `Authorization result = Pending`, which the
@@ -439,7 +472,9 @@ survives a short restart, but a long outage still exits the process by design.
   grant is keyed to the executable's MD5. Rules out silent auto-update.
 - **`/sage-50/save-id` is not in production**, so `--setup` and the MSI's
   `WriteSageConfigJson` custom action cannot provision a customer yet.
-- **MSI is unsigned** — SmartScreen will block it.
+- Ordinary development builds are unsigned. Customer artifacts must be produced
+  with `release.ps1`, which signs both the EXE and MSI through Azure Artifact
+  Signing before verification.
 - **Service account must be supplied at install** (`SERVICEACCOUNT`,
   `SERVICEPASSWORD`); the service installs `Start="demand"` and will not sync
   under the `LocalSystem` default. Installing with a real service account has
