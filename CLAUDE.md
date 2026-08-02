@@ -61,26 +61,45 @@ The dialog shows `ADDIN_TITLE` from `Properties/Resources.resx`. It said "Sage
 Peachtree SDK" (the SDK sample's name) until Aug 2026; it is now "Rutter Sage 50
 Connector".
 
-### What revokes the grant
+### What revokes the grant — Sage keys it to the executable's MD5
 
-Confirmed by repeated observation on the VM:
+Settled 2026-08-02 by reading Sage's own record. The grant lives in the
+**company** directory:
+
+```
+C:\Sage\Peachtree\Company\<company>\APIACCSS.DAT
+```
+
+Printable strings in that file show one entry per approved application —
+`Sage50Connector.exe`, `GNCIApp`, `1.0.0.0`, `Rutter`, the `ADDIN_TITLE`, and a
+base64 16-byte value that is **`MD5(Sage50Connector.exe)`**. Verified by
+computing the MD5 of the approved binary and finding that exact string in the
+file.
+
+So the identity Sage authorizes is the executable's *content*:
 
 | Action | Grant survives? |
 |---|---|
-| Restarting the connector process (same binary) | Yes |
-| Killing the connector with `Stop-Process -Force` | Yes |
-| Closing/force-killing Sage 50 itself | Yes |
-| **Rebuilding the connector** | **No — re-approval required** |
+| Restarting the connector process | Yes |
+| Killing it with `Stop-Process -Force` | Yes |
+| Closing/force-killing Sage 50 | Yes |
+| **Rebuilding with no source change** | **Yes** — the build is deterministic, so the bytes and therefore the MD5 are identical |
+| **Rebuilding after a source change** | **No** — different bytes, new identity, new approval |
+| Reinstalling or rolling back to a previously approved build | Yes — entries are additive, so old hashes stay authorized |
 
-Every rebuild produced `Pending` again and needed another **Always Allow
-Access**. `AssemblyVersion` is pinned to `1.0.0.0`, so it is not version
-auto-increment. Cause not fully isolated; suspect Sage keys the grant to the
-executable's identity or hash.
+This is Sage behaving as designed, not a defect, and it is why rebuilding in
+Visual Studio often seemed fine: an incremental build that did not recompile
+left the binary untouched.
 
-**This is an unresolved product risk**: if it holds for customers, every
-connector upgrade re-prompts every user. Investigate before shipping updates.
-When iterating locally, avoid needless rebuilds — restarting the existing binary
-is free.
+**Product consequence, and it is a real one:** every genuine new version has a
+new hash, so **every customer must re-approve on every upgrade**. Combined with
+the approval being un-automatable on their machine, silent auto-update is
+impossible. Ship updates with re-approval as a documented step, and expect a
+support burden proportional to release frequency. Shipping fewer, larger updates
+is cheaper here than shipping continuously.
+
+For local iteration the cost is one approval per code change, which is
+unavoidable — but `/sage50-iterate` automates the clicking.
 
 ### Automating the approval — what works
 
@@ -367,7 +386,8 @@ survives a short restart, but a long outage still exits the process by design.
 ## Known gaps before customer deployment
 
 - **Untested against a real (non-sample) Sage company.** Highest risk; see above.
-- **Rebuild revokes Sage authorization.** Cause unknown; blocks a clean upgrade story.
+- **Every upgrade requires every customer to re-approve** in Sage, because the
+  grant is keyed to the executable's MD5. Rules out silent auto-update.
 - **`/sage-50/save-id` is not in production**, so `--setup` and the MSI's
   `WriteSageConfigJson` custom action cannot provision a customer yet.
 - **MSI is unsigned** — SmartScreen will block it.
