@@ -250,10 +250,11 @@ cursor advances, the final page arrives without `next_cursor`, the job moves to
 
 ### Leaked Sage sessions exhaust the license
 
-The connector never closes its `PeachtreeSession` — `CloseCompany()` exists in
-`Sage50Repository` but nothing calls it, and there is no shutdown handling. Every
-force-killed instance therefore holds a Sage connection until something else
-drops it. After enough iterations Sage answers:
+The connector now releases its session on every exit path it can observe —
+normal return, Ctrl+C, unhandled exception, and the service's `OnStop`. A **hard
+kill** (`Stop-Process -Force`, TerminateProcess, power loss) runs no handler and
+still leaks a seat; nothing in-process can fix that. After enough leaked
+sessions Sage answers:
 
 ```
 License is currently unavailable. You have reached the maximum number of
@@ -263,10 +264,10 @@ connections, please try again later
 Restarting `Sage 50 Connect Service <year>` releases the orphans
 (`.claude/skills/sage50-iterate/scripts/reset-sage-sessions.ps1`).
 
-This is a **customer-facing bug, not just a dev annoyance**: a service that is
-stopped, crashes, or is killed by a reboot leaks a seat the same way, and Sage
-50 licenses a limited number of concurrent connections. Closing the company and
-ending the session on shutdown is the fix.
+Note that `Dispose()` and `CloseCompany()` used to reach the session through the
+`PeachtreeSession` *property*, whose getter creates **and begins** a session on
+demand — so releasing through it opened the very connection it was meant to give
+back. Both read `m_peachtreeSession` directly now; keep it that way.
 
 ### Kill stale connector processes before re-testing
 
@@ -375,8 +376,6 @@ survives a short restart, but a long outage still exits the process by design.
   under the `LocalSystem` default. Installing with a real service account has
   not been exercised — only the LocalSystem default path was tested.
 - **No auto-update mechanism.**
-- **Sage sessions are never closed** — see "Leaked Sage sessions exhaust the
-  license". A killed or crashed connector holds a Sage connection seat.
 - **Entity coverage is accounts/vendors/customers read plus CREATE vendor.** No
   invoices, bills, payments, or journal entries.
 - **One install serves one company** — `CompanyName` is a single value.
