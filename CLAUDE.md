@@ -1,5 +1,9 @@
 # Sage 50 Connector Runbook
 
+The connector is a Windows desktop agent that reverse-polls Rutter for jobs and
+services them against a local Sage 50 install through the Sage Peachtree SDK.
+Rutter never connects inbound; the connector always dials out.
+
 ## What runs where
 
 - Develop and commit C# changes on macOS if preferred.
@@ -13,65 +17,313 @@
 2. Open `Sage50Connector.sln` in Visual Studio 2022 (not merely the repository folder).
 3. Select `Debug` and `x86` in the toolbar.
 4. Use **Build -> Rebuild Solution** after source changes. Changing only the external config does not require a rebuild.
-5. Keep Sage 50 open with the target company, then run the `Sage50Connector` startup project.
+5. Run the `Sage50Connector` startup project.
 
-The one-shot executable polls for a desktop job and exits when there is no job. `Sage50ConnectorService` is the long-running Windows Service wrapper; it calls the connector at startup and then once per minute.
+Sage 50 does **not** need to be open — see "Sage 50 does not need to be running".
+
+The one-shot executable polls for jobs and exits after
+`MaxConsecutivePollFailures` failed polls. `Sage50ConnectorService` is the
+long-running Windows Service wrapper; it calls the connector at startup and then
+once per minute.
+
+### Scripted build/run from macOS
+
+`az vm run-command` works for git, build, and file checks, but **not** for
+running the connector — see "The connector must run as the user who approved
+Sage". Write a CRLF PowerShell file and pass it with `--scripts @file`; quoting
+inline is fragile.
+
+```bash
+az vm run-command invoke -g MICROSOFTGREATPLAINS_GROUP -n microsoftgreatplains \
+  --command-id RunPowerShellScript --scripts @/tmp/cmd.ps1 -o tsv --query "value[0].message"
+```
+
+Only one run-command executes at a time; a second returns `Conflict`, and a
+timed-out extension can wedge the channel for several minutes.
+
+## Sage authorization — the thing that will waste your afternoon
+
+On first access the Sage API returns `Authorization result = Pending`, which the
+connector surfaces as
+`Error: Authorization result = Pending. Company is disconnected.`
+
+1. Run the connector once to register the access request.
+2. In Sage 50: **File → Close Company**, then reopen the company as a Sage administrator.
+3. Sage shows the third-party access request during company open.
+4. Choose **Always Allow Access**.
+5. Run the connector again.
+
+The prompt appears **only when the company is opened**. If the company is
+already open, nothing happens no matter how many times the connector asks — this
+is the single most common way to lose an hour here.
+
+The dialog shows `ADDIN_TITLE` from `Properties/Resources.resx`. It said "Sage
+Peachtree SDK" (the SDK sample's name) until Aug 2026; it is now "Rutter Sage 50
+Connector".
+
+### What revokes the grant
+
+Confirmed by repeated observation on the VM:
+
+| Action | Grant survives? |
+|---|---|
+| Restarting the connector process (same binary) | Yes |
+| Killing the connector with `Stop-Process -Force` | Yes |
+| Closing/force-killing Sage 50 itself | Yes |
+| **Rebuilding the connector** | **No — re-approval required** |
+
+Every rebuild produced `Pending` again and needed another **Always Allow
+Access**. `AssemblyVersion` is pinned to `1.0.0.0`, so it is not version
+auto-increment. Cause not fully isolated; suspect Sage keys the grant to the
+executable's identity or hash.
+
+**This is an unresolved product risk**: if it holds for customers, every
+connector upgrade re-prompts every user. Investigate before shipping updates.
+When iterating locally, avoid needless rebuilds — restarting the existing binary
+is free.
+
+### The connector must run as the user who approved Sage
+
+Sage records the grant per Windows user.
+
+| Launch context | Result |
+|---|---|
+| `az vm run-command` (SYSTEM, session 0) | `Pending` forever |
+| Interactive user who approved | Works |
+
+This is why the MSI no longer installs the service as `LocalSystem`. To run the
+connector remotely as the interactive user, register a scheduled task with an
+interactive-token principal — no password needed:
+
+```powershell
+$action = New-ScheduledTaskAction -Execute 'C:\src\Sage50Connector\bin\Release\Sage50Connector.exe'
+$principal = New-ScheduledTaskPrincipal -UserId 'rutteradmin' -LogonType Interactive -RunLevel Highest
+Register-ScheduledTask -TaskName RutterSageLive -Action $action -Principal $principal
+Start-ScheduledTask -TaskName RutterSageLive
+```
+
+`schtasks /create /IT /NP` does **not** work — those switches are mutually
+exclusive.
+
+### Sage 50 does not need to be running
+
+Verified 2026-08-02: with `Peachw.exe` fully closed, a full sync succeeded (156
+accounts, 35 customers, 29 vendors). The SDK opens the company itself via the
+`Sage.Peachtree.Network.Connector` Windows service, which autostarts.
+
+This matters: the background-service deployment model is viable, and customers
+do not have to leave Sage 50 open.
+
+### Sample vs real companies — untested risk
+
+**Every test to date has used `Bellwether Garden Supply`, which is a Sage
+*sample* company.** Per the SDK, an *empty* `ApplicationIdentifier` already
+grants sample-company access, so none of this proves Rutter's licensed
+identifier works against a real customer company. Test against a non-sample
+company before any customer deployment. If the identifier is wrong, nothing else
+matters.
 
 ## Runtime configuration and logs
 
-The executable does **not** use the checked-in `Connector.config` for its ingest credentials. It reads this external file instead:
+Config path (preferred):
 
-`C:\Users\Default\Documents\sage50Config.json`
+`%ProgramData%\Rutter\Sage50Connector\sage50Config.json`
 
-Use normal JSON:
+Legacy fallback, still honored: `C:\Users\Default\Documents\sage50Config.json`
 
 ```json
 {
   "CompanyName": "Bellwether Garden Supply",
-  "AccessKey": "<credential inbound access token>",
-  "ConnectionId": "<Rutter item ID>"
+  "AccessKey": "<credential inbound access token, iat_...>",
+  "ConnectionId": "<Rutter item ID>",
+  "ApiBaseUrl": "https://production.rutterapi.com"
 }
 ```
 
+`ApiBaseUrl` is optional and defaults to production; point it at an ngrok URL for
+local end-to-end work.
+
 Never commit this file or paste its credential values into tickets, chat, or logs.
 
-`Program.cs` parses this file with `JObject.Parse`. Do not revert this to hand-written string slicing: string slicing includes quotes in normal JSON values and causes authentication failures.
+`ConnectorConfig.Load` parses this with `JObject.Parse`. Do not revert to
+hand-written string slicing: slicing includes the quotes and causes auth failures.
 
-Runtime logs are written to:
+Logs: `%ProgramData%\Rutter\Sage50Connector\log.txt` (legacy: Documents\log.txt).
+The connector logs config path, company name, connection ID and access-token
+*length* — never the token itself.
 
-`C:\Users\Default\Documents\log.txt`
-
-The connector logs the config path, company name, connection ID, and access-token length, but must never log a token value.
+`CompanyName` must match the Sage company exactly. A mismatch yields
+`Error: There are no companies with that name`, which is a different failure from
+`Pending`.
 
 ## Rutter authentication contract
 
-The ingest endpoint pairs:
-
 - `ConnectionId`: the Rutter item ID.
-- `AccessKey`: the item's credential **inbound access token**.
+- `AccessKey`: the item's credential **inbound access token** (`iat_…`).
 
-Do **not** use the item's regular `access_token`, public token, organization client ID, or organization client secret as `AccessKey`. A 401 with `Invalid access token/connectionId pair` means this pair is wrong or the executable is reading a different config/build.
+Do **not** use the item's regular `access_token`, public token, organization
+client ID, or client secret. A 401 `Invalid access token/connectionId pair` means
+the pair is wrong, the credential has no `inbound_access_token`, or the exe is
+reading a different config/build.
 
-## Sage authorization
+Provisioning without hand-editing JSON:
 
-On first access, the Sage API returns `Authorization result = Pending`.
+```
+Sage50Connector.exe --setup "<CompanyName>" <OrgId> [ApiBaseUrl]
+```
 
-1. Run the connector once to register the request.
-2. Close and reopen the Sage company as a Sage administrator.
-3. Sage displays the third-party application access request.
-4. Select **Always Allow Access**.
-5. Run the connector again.
+This calls `POST {ApiBaseUrl}/sage-50/save-id`, which mints the item, credential
+and inbound token and returns the config to write. **That route currently exists
+only on the `paperclip/RUT-29-re-setup-the-sage-50-integration` branch of
+rutter-backend** — it must ship to production before `--setup` works for
+customers.
 
-The approval may not appear while the company is already open. A pending authorization is not a company-name mismatch; the exact company used in this setup is `Bellwether Garden Supply`.
+## The ingest protocol
 
-## Expected behavior and verification
+The connector polls `POST {ApiBaseUrl}/versioned/ingest` with
+`X-Rutter-Version: 2024-04-30` and `Authorization: Bearer <iat_…>`, body
+`{"connection":{"id":"<itemId>"}}`. Rutter replies with the next job:
 
-The connector polls `POST /versioned/ingest` and handles:
+- `LIST_FETCH` — Accounts, Vendors, Customers
+- `CREATE` — Vendors
+- `NOOP` — nothing to do; the connector sleeps 5 minutes
 
-- `LIST_FETCH` for Accounts, Vendors, and Customers.
-- `CREATE` for Vendors.
-- `NOOP` by waiting five minutes before polling again.
+The connector reports a result by POSTing back to the same endpoint with
+`job_id`, `type`, `platform_entity`, `parameters`, and either `data` or
+`error_message`.
 
-After Rutter authentication succeeds, an `Authorization result = Pending` is a Sage-side approval issue. An internal-server-error response while posting that Sage error is secondary; approve Sage access first.
+### Paging
 
-For an authorized production verification, use a read-only database lookup to check the item's `desktop_platform_jobs` and `platform_entities` records. Do not query or print credential values in shared output.
+`parameters.limit` and `parameters.cursor` are set by Rutter. The connector
+returns at most `limit` records and sets `next_cursor` when more remain; Rutter
+marks the job `completed` only when a response arrives **without** `next_cursor`,
+and re-serves the same job with `parameters.cursor` advanced otherwise.
+
+`next_cursor` must be *omitted*, not null, on the final page — Rutter types it as
+an optional string, which rejects an explicit `null`.
+
+Paging keys on the record id, not an offset: Sage is a live database and an
+offset silently skips records when something is inserted earlier in the order
+between pages.
+
+### Job lifecycle gotcha
+
+Rutter's `selectNextJob` falls back to re-serving `inProgressJobs[0]` when
+nothing is enqueued. A job that never reaches a terminal state is therefore
+handed back on **every** poll. Combined with a connector that retried instantly,
+this produced 330 poll/report cycles in one minute. Two defenses now exist:
+`PollDelay` between cycles in the connector, and Rutter marking the job `failed`
+when `error_message` arrives.
+
+## Serialization: the rule that silently ate 155 of 156 records
+
+Build the payload as an anonymous object and serialize it **directly** with
+`CamelCasePropertyNamesContractResolver`.
+
+```csharp
+// Right
+JsonConvert.SerializeObject(responseObject, new JsonSerializerSettings {
+    ContractResolver = new CamelCasePropertyNamesContractResolver()
+});
+
+// Wrong — the resolver is silently ignored
+var jsonObject = JObject.FromObject(responseObject);
+JsonConvert.SerializeObject(jsonObject, settingsWithResolver);
+```
+
+`JObject.FromObject` materialises property names immediately, and a
+`ContractResolver` has no effect when serializing an already-built `JObject`.
+Records then go out with Sage's casing (`ID`, `Name`, `IsInactive`). Rutter
+extracts each record's primary key from `$.id`, which matches nothing, so every
+record persists with a **null `platform_id`** and the whole page upserts onto one
+row. A 156-account fetch landed as 1 row, with no error anywhere.
+
+**Verification:** after a sync, check that `platform_id` is populated:
+
+```sql
+select platform_entity, count(*), count(platform_id)
+from platform_entities where item_id = '<itemId>' group by 1;
+```
+
+Counts that disagree mean the casing is wrong again.
+
+## Incremental sync and Sage's LastSavedAt
+
+Sage leaves `LastSavedAt` unset on records untouched since the company was
+created. Against Bellwether: **29 of 29 vendors and 34 of 35 customers had no
+`LastSavedAt`.**
+
+`LastSavedAt` is a `DateTime?`, and in C# a null nullable compares `false`
+against any bound — so `LastSavedAt >= cutoff` dropped every untimestamped
+record, permanently, at any cutoff. Vendors synced 0 rows and looked "correct".
+
+`Sage50Repository.ChangedSince` now treats an absent timestamp as "include" and
+`LogFilterOutcome` logs `returned / no-timestamp / passed` counts every fetch, so
+this is visible rather than silent.
+
+Consequence: those records are re-sent on every sync, since Sage never gives them
+a timestamp. Fine at Bellwether's size; a real cursor strategy is needed at scale.
+
+`GetAccounts` ignores `updated_at` entirely and always returns everything — which
+is why accounts were the only entity that looked healthy.
+
+## Local end-to-end testing
+
+1. Run rutter-backend from the branch with the Sage 50 routes
+   (`paperclip/RUT-29-re-setup-the-sage-50-integration`, `PORT=4007`), not main.
+2. `ngrok http --hostname=eyrutter.ngrok.io 4007` — the reserved hostname keeps
+   the connector config stable across restarts.
+3. Point `ApiBaseUrl` at the ngrok URL.
+4. Enqueue jobs. The cursor matters:
+   ```
+   yarn rutter refresh <itemId> -e ACCOUNTS -t side -f --after 1900-01-01
+   ```
+   Without `--after`, the cursor defaults to *now* and vendors/customers
+   legitimately return nothing, which is easy to misread as a bug.
+5. Run the connector as the interactive user (see above) and watch both logs.
+
+Verify in the DB — never print credential values:
+
+```sql
+select platform_entity, status from desktop_platform_jobs where item_id = '<itemId>';
+select platform_entity, count(*), count(platform_id) from platform_entities
+  where item_id = '<itemId>' group by 1;
+```
+
+Bouncing the backend kills the connector's poll; with the retry/backoff it now
+survives a short restart, but a long outage still exits the process by design.
+
+## Known gaps before customer deployment
+
+- **Untested against a real (non-sample) Sage company.** Highest risk; see above.
+- **Rebuild revokes Sage authorization.** Cause unknown; blocks a clean upgrade story.
+- **`/sage-50/save-id` is not in production**, so `--setup` and the MSI's
+  `WriteSageConfigJson` custom action cannot provision a customer yet.
+- **MSI is unsigned** — SmartScreen will block it.
+- **Service account must be supplied at install** (`SERVICEACCOUNT`,
+  `SERVICEPASSWORD`); the service installs `Start="demand"` and will not sync
+  under the `LocalSystem` default. The install path has not been tested end to end.
+- **No auto-update mechanism.**
+- **Entity coverage is accounts/vendors/customers read plus CREATE vendor.** No
+  invoices, bills, payments, or journal entries.
+- **One install serves one company** — `CompanyName` is a single value.
+- Inbound access token is stored plaintext in `%ProgramData%` and logged
+  plaintext by the backend's ingest middleware (deliberately deferred).
+
+## Connector-side pitfalls already fixed — do not regress
+
+- `Service1.cs`: use `System.Timers.Timer` (ambiguous with `System.Threading.Timer`).
+- WiX `Product.wxs`: package shared DLLs from `$(var.Sage50Connector.TargetDir)`.
+- Custom actions are packed by a post-build `MakeSfxCA` step into `*.CA.dll`.
+- A failed poll must not end the process outright — retry with backoff.
+- Harmless warnings: `CS0252` in `Sage50Repository.cs`, NuGet `NU1903` for
+  `System.Text.Json` 7.0.3.
+
+## Unexplained
+
+With the pre-fix build, 330 error reports were logged as "Successfully posted to
+Rutter" while the backend returned **500** to every one (confirmed by replaying
+the exact payload). `PostToRutterAsync` checks `IsSuccessStatusCode` correctly and
+the binary matched HEAD. The fix made those posts genuinely succeed, so it is
+masked now — but connector logs may be capable of reporting success on failure.
+Worth chasing.
