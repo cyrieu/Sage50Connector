@@ -11,6 +11,11 @@ set -euo pipefail
 
 RG="${SAGE50_VM_RG:-<SAGE50_VM_RG>}"
 VM="${SAGE50_VM_NAME:-<SAGE50_VM_NAME>}"
+# Pin the subscription. `az login` can leave a different one as default (the
+# signing-certificate subscription, in this account), and every call then fails
+# with AuthorizationFailed naming a subscription that has nothing to do with
+# this VM - which reads like an expired token rather than a wrong default.
+SUB="${SAGE50_VM_SUBSCRIPTION:-<SAGE50_VM_SUBSCRIPTION>}"
 
 [ $# -eq 1 ] || { echo "usage: $(basename "$0") <script.ps1>" >&2; exit 2; }
 [ -f "$1" ] || { echo "no such script: $1" >&2; exit 2; }
@@ -22,7 +27,7 @@ perl -pe 's/\r?\n/\r\n/' "$1" > "$crlf"
 
 # Wait out any in-flight run-command rather than failing with Conflict.
 for _ in $(seq 1 40); do
-  if out=$(az vm run-command invoke -g "$RG" -n "$VM" \
+  if out=$(az vm run-command invoke -g "$RG" -n "$VM" --subscription "$SUB" \
         --command-id RunPowerShellScript --scripts @"$crlf" \
         -o tsv --query "value[0].message" 2>&1); then
     printf '%s\n' "$out"

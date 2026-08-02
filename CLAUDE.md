@@ -211,8 +211,19 @@ session:
 The agent will typically stop and ask before clicking OK, since it is granting
 persistent data access; answer it and it finishes.
 
-None of this changes the **product** story: a customer still has to click this
+**Scope this to development, deliberately.** The dialog is a consent decision
+about handing an application persistent access to company financial data. On
+this VM it is fine to automate: it is our own test machine, Sage's built-in
+sample company, our own connector, and the approval is being re-requested only
+because *we* rebuilt the binary. Automating the same click on a customer's
+machine is not fine, and no tooling here should grow in that direction — the
+customer's approval is the point of the dialog, not an obstacle to it.
+
+So none of this changes the **product** story: a customer still clicks this
 themselves. It is a hard install step and it blocks silent auto-update.
+
+Expect an agent to pause and ask before clicking OK. That is the right instinct;
+confirm it explicitly rather than pre-emptively instructing it not to ask.
 
 Note that killing `Peachw.exe` and relaunching it brings Sage back to the
 **welcome screen with no company open**, which is *not* equivalent to
