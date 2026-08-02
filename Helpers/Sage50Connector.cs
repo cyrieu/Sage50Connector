@@ -22,16 +22,62 @@ namespace Sage50Connector.Helpers
             Sage.Peachtree.API.Resolver.AssemblyInitializer.Initialize();
         }
 
-        /// <summary>
-        /// 
-        /// </summary>
         public void Dispose()
         {
-            if (PeachtreeSession != null)
+            Shutdown();
+        }
+
+        /// <summary>
+        /// Release the Sage session and the open company.
+        ///
+        /// Sage licenses a limited number of concurrent connections and does not
+        /// reclaim ours when the process goes away, so failing to do this leaks a
+        /// seat until the Sage connect service restarts. Once enough leak, Sage
+        /// answers every request with "License is currently unavailable. You have
+        /// reached the maximum number of connections".
+        ///
+        /// Reads m_peachtreeSession directly rather than the PeachtreeSession
+        /// property on purpose: the property's getter creates *and begins* a
+        /// session on demand, so releasing through it would open the very
+        /// connection this is meant to give back.
+        ///
+        /// Safe to call repeatedly, and safe when nothing was ever opened.
+        /// </summary>
+        public void Shutdown()
+        {
+            PeachtreeSession session = m_peachtreeSession;
+            m_peachtreeSession = null;
+            Company company = CurrentCompany;
+            CurrentCompany = null;
+
+            if (session == null)
             {
-                PeachtreeSession.Close(CurrentCompany);
-                m_peachtreeSession = null;
+                return;
             }
+
+            try
+            {
+                if (company != null && !company.IsClosed && session.SessionActive)
+                {
+                    session.Close(company);
+                }
+            }
+            catch (Exception ex)
+            {
+                // Never let cleanup throw - it runs from process-exit paths.
+                global::Sage50Connector.Program.WriteToFile("Error closing Sage company: " + ex.Message);
+            }
+
+            try
+            {
+                session.End();
+            }
+            catch (Exception ex)
+            {
+                global::Sage50Connector.Program.WriteToFile("Error ending Sage session: " + ex.Message);
+            }
+
+            (session as IDisposable)?.Dispose();
         }
         #endregion
 
@@ -243,9 +289,14 @@ namespace Sage50Connector.Helpers
         /// 
         public void CloseCompany()
         {
-            if (PeachtreeSession.SessionActive && CurrentCompany != null && !CurrentCompany.IsClosed)
+            // m_peachtreeSession, not the property: the getter would begin a new
+            // session just to close a company that by definition is not open in it.
+            if (m_peachtreeSession != null
+                && m_peachtreeSession.SessionActive
+                && CurrentCompany != null
+                && !CurrentCompany.IsClosed)
             {
-                PeachtreeSession.Close(CurrentCompany);
+                m_peachtreeSession.Close(CurrentCompany);
                 CurrentCompany = null;
             }
         }

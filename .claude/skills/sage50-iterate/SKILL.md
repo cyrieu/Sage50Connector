@@ -48,10 +48,22 @@ git add -A && git commit -m "..." && git push origin rutter/productionize-v1
 
 Prints `BUILD OK` plus the new HEAD, or `BUILD FAILED` with the first errors.
 
-### 3. Enqueue jobs
+### 3. Stop the connector, then enqueue jobs
 
-From the backend worktree. `--after` matters: without it the cursor defaults to
-*now* and vendors/customers legitimately return nothing, which reads as a bug.
+**Stop first.** A live instance polls every 5 minutes, so it will pick up
+anything you enqueue — and if it started before the current approval it holds a
+cached failed session and fails every job it touches, before your intended run
+ever sees them. The symptom is jobs sitting at `failed` a few seconds before
+your run, and your run reporting only NOOP. This is the single easiest way to
+waste a cycle here.
+
+```bash
+.claude/skills/sage50-iterate/scripts/vmrun.sh .claude/skills/sage50-iterate/scripts/stop.ps1
+```
+
+Then enqueue, from the backend worktree. `--after` matters: without it the
+cursor defaults to *now* and vendors/customers legitimately return nothing,
+which reads as a bug.
 
 ```bash
 cd <rutter-backend>/.paperclip/worktrees/paperclip/RUT-29-re-setup-the-sage-50-integration

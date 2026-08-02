@@ -31,7 +31,7 @@ Start-Sleep -Seconds 60
 Write-Output '=== connector log ==='
 if (Test-Path $log) {
   (Get-Content $log |
-    Select-String 'Fetched|Sage returned|Pending|Error|Failed to post|NOOP|Successfully posted') -replace
+    Select-String 'Fetched|Sage returned|Pending|Error|Failed|NOOP|Successfully posted|Poll failed|Could not reach|Releasing Sage session|Loaded configuration') -replace
     'iat_[A-Za-z0-9]+', 'iat_<redacted>'
 } else {
   Write-Output 'no log written - did the task start?'
