@@ -166,14 +166,26 @@ accounts, 35 customers, 29 vendors). The SDK opens the company itself via the
 This matters: the background-service deployment model is viable, and customers
 do not have to leave Sage 50 open.
 
-### Sample vs real companies — untested risk
+### Real (non-sample) companies — verified
 
-**Every test to date has used `Bellwether Garden Supply`, which is a Sage
-*sample* company.** Per the SDK, an *empty* `ApplicationIdentifier` already
-grants sample-company access, so none of this proves Rutter's licensed
-identifier works against a real customer company. Test against a non-sample
-company before any customer deployment. If the identifier is wrong, nothing else
-matters.
+**Settled 2026-08-02.** Until then every test had used `Bellwether Garden
+Supply`, a Sage *sample* company — and since an empty `ApplicationIdentifier`
+already grants sample-company access, none of it proved Rutter's licensed
+identifier worked anywhere real.
+
+It does. A non-sample company (`Rutter Test Co`, created through Sage's New
+Company wizard) authorized normally and synced **53 accounts** with correct
+`platform_id`s, paging across two pages. Customers and vendors returned 0,
+which is right for a company with no data yet. No licensing, registration or
+"unauthorized application" error at any point.
+
+Practical notes from doing it:
+
+- The grant is **per company**. A new company means a fresh `Pending` and a
+  fresh approval, even though the binary is unchanged — each company has its own
+  `APIACCSS.DAT`.
+- Switching companies is just `CompanyName` in `sage50Config.json`; keep a
+  backup, since one install serves one company.
 
 ## Runtime configuration and logs
 
@@ -385,7 +397,6 @@ survives a short restart, but a long outage still exits the process by design.
 
 ## Known gaps before customer deployment
 
-- **Untested against a real (non-sample) Sage company.** Highest risk; see above.
 - **Every upgrade requires every customer to re-approve** in Sage, because the
   grant is keyed to the executable's MD5. Rules out silent auto-update.
 - **`/sage-50/save-id` is not in production**, so `--setup` and the MSI's
