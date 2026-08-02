@@ -74,7 +74,8 @@ try {
   & $msbuild $wixProject `
     /t:Rebuild `
     /p:Configuration=Release `
-    /p:Platform=x86 `
+    /p:Platform=AnyCPU `
+    /p:OutputPath=bin\Release\ `
     /p:BuildProjectReferences=false `
     /m:1 `
     /v:minimal `
@@ -95,9 +96,6 @@ finally {
 }
 
 foreach ($artifact in @($exe, $msi)) {
-  & jsign show --verbose $artifact
-  if ($LASTEXITCODE -ne 0) { throw "Jsign verification failed: $artifact" }
-
   $signature = Get-AuthenticodeSignature $artifact
   if ($signature.Status -ne 'Valid') {
     throw "Authenticode verification failed for $artifact`: $($signature.Status) - $($signature.StatusMessage)"

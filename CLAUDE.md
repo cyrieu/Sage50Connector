@@ -83,10 +83,24 @@ timed-out extension can wedge the channel for several minutes.
 
 `build.ps1` produces unsigned development artifacts. Customer releases must use
 the existing Rutter Azure Artifact Signing account to sign both the installed
-executable and the MSI. Run the release from an interactive PowerShell session
-on the VM so Azure CLI can use the signed-in release identity.
+executable and the MSI.
 
-Install the release tools once from an elevated PowerShell window:
+The preferred path builds and packages on Windows but signs on macOS. It copies
+the EXE and MSI over SSH, so Azure credentials never need to be stored on the
+VM:
+
+```bash
+.claude/skills/sage50-iterate/scripts/release-via-ssh.sh
+```
+
+The script uses `~/.ssh/tally_azure`, signs with the Mac's current Azure CLI
+identity, writes immutable local artifacts under
+`artifacts/sage50-release-<git-sha>/`, returns both signed files to the VM, and
+verifies them with Windows Authenticode. It expects Jsign (`brew install jsign`)
+and an active `az login` on the Mac.
+
+As an alternative, the complete release can run inside an interactive
+PowerShell session on the VM. Install the release tools there once:
 
 ```powershell
 Set-Location C:\src\Sage50Connector
@@ -106,11 +120,11 @@ az login
 - signing account `RutterSigning`
 - certificate profile `DynamicsCertificate`
 
-The release order is fixed: rebuild, sign `Sage50Connector.exe`, package the MSI
-without rebuilding project references, sign the MSI, verify both Authenticode
-signatures, and print SHA-256 checksums. Do not rebuild, re-sign, or modify the
-artifacts afterward. Signing changes the executable's MD5, so perform Sage
-approval and final testing against that exact signed EXE.
+Both paths use the same fixed order: rebuild, sign `Sage50Connector.exe`, package
+the MSI without rebuilding project references, sign the MSI, verify both
+Authenticode signatures, and print SHA-256 checksums. Do not rebuild, re-sign,
+or modify the artifacts afterward. Signing changes the executable's MD5, so
+perform Sage approval and final testing against that exact signed EXE.
 
 ## Sage authorization — the thing that will waste your afternoon
 
