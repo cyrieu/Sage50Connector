@@ -70,92 +70,6 @@ namespace Sage50Connector.Helpers
             }
         }
 
-        public bool PostAccount(string companyName, ChartofAccount account) 
-        {
-            return false;
-        }
-
-        public ChartofAccount GetAccount(string companyName, string id)
-        {
-            return GetEntityFromPath<ChartofAccount>(companyName, "CompanyManager.Instance.CurrentCompany.Factories.AccountFactory.List()", id);
-        }
-
-        public BalanceSheet GetbBalanceSheet(string companyName, int month, string assets_Accounts, string liability_Accounts, string equity_Accounts)
-        {
-            string[] assetTypesArray = assets_Accounts.Split(',');
-            string[] liabilityTypesArray = liability_Accounts.Split(',');
-            string[] equityTypesArray = equity_Accounts.Split(',');
-            
-            BalanceSheet balanceSheet = new BalanceSheet();
-            EnsureCompanyConnected(companyName);
-            
-            if (!CurrentCompanyDesconnected)
-            {
-                DateTime lastDayOfMonth = new DateTime(DateTime.Now.Year, month, DateTime.DaysInMonth(DateTime.Now.Year, month));
-                AccountList acctList = CompanyManager.Instance.CurrentCompany.Factories.AccountFactory.List();
-                acctList.Load();
-                List<Item> assetAccounts = (from acct in acctList
-                                            where assetTypesArray.Contains(acct.Classification.ToString())
-                                            select new Item
-                                            {
-                                                account_id = acct.ID,
-                                                name = acct.Description,
-                                                value = acct.GetEndingBalance(lastDayOfMonth),
-                                            }).ToList();
-                List<Item> liabilityAccounts = (from acct in acctList
-                                                  where liabilityTypesArray.Contains(acct.Classification.ToString())
-                                                  select new Item
-                                                  {
-                                                      account_id = acct.ID,
-                                                      name = acct.Description,
-                                                      value = acct.GetEndingBalance(lastDayOfMonth),
-                                                  }).ToList();
-                List<Item> equityAccounts = (from acct in acctList
-                                                  where equityTypesArray.Contains(acct.Classification.ToString())
-                                                  select new Item
-                                                  {
-                                                      account_id = acct.ID,
-                                                      name = acct.Description,
-                                                      value = acct.GetEndingBalance(lastDayOfMonth),
-                                                  }).ToList();
-
-                Liabilities liabilities = new Liabilities
-                {
-                    account_id = "1",
-                    name = "Liabilities",
-                    value = liabilityAccounts.Sum(item => item.value),
-                    items = liabilityAccounts
-                };
-                Assets assets = new Assets
-                {
-                    account_id = "1",
-                    name = "Assets",
-                    value = assetAccounts.Sum(item => item.value),
-                    items = assetAccounts
-                };
-                Equity equity = new Equity
-                {
-                    account_id = "1",
-                    name = "Equity",
-                    value = equityAccounts.Sum(item => item.value),
-                    items = equityAccounts
-                };
-                balanceSheet.id = "1";
-                balanceSheet.assets = assets;
-                balanceSheet.equity = equity;
-                balanceSheet.liabilities = liabilities;
-                balanceSheet.total_assets = assets.value;
-                balanceSheet.total_equity = equity.value;
-                balanceSheet.total_liabilities = liabilities.value;
-                balanceSheet.created_at = DateTime.Now;
-                balanceSheet.updated_at = DateTime.Now;
-                balanceSheet.start_date = lastDayOfMonth.ToString();
-                balanceSheet.end_date = lastDayOfMonth.ToString();
-
-            }
-            return balanceSheet;
-        }
-
         public List<ChartofAccount> GetAccounts(string companyName)
         {
             EnsureCompanyConnected(companyName);
@@ -471,16 +385,6 @@ namespace Sage50Connector.Helpers
                 }
             }
             return null;
-        }
-
-
-
-        public void VerifyCompanyAccess(int index)
-        {
-            if (index < 0 || index >= Companies.Count)
-            {
-                throw new ArgumentOutOfRangeException(nameof(index), "Company index is out of range.");
-            }
         }
         public T GetEntityFromPath<T>(string companyName, string path, string id = null)
         {
