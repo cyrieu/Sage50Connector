@@ -13,6 +13,15 @@ from inside the VM. This skill is that loop.
 Read `CLAUDE.md` at the repo root for the underlying facts. This is the
 procedure; that is the reference.
 
+## Artifact policy
+
+Default to unsigned development artifacts. For normal coding, rebuilding,
+testing, iteration, and VM deployment, run `build.ps1` and the relevant test
+scripts, then stop. Do not invoke `release-via-ssh.sh`, `release.ps1`, Jsign, or
+Azure Artifact Signing unless the user explicitly asks for a **signed** release
+or customer distributable. Producing or testing the development MSI does not by
+itself authorize signing.
+
 ## Preconditions
 
 - An RDP session to `<SAGE50_VM_HOST>` open on the Mac, logged in as the lab Windows user.

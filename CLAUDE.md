@@ -97,6 +97,14 @@ timed-out extension can wedge the channel for several minutes.
 the existing Rutter Azure Artifact Signing account to sign both the installed
 executable and the MSI.
 
+**Signing is opt-in, not part of normal development.** For ordinary coding,
+building, testing, iteration, or VM deployment, stop after the unsigned
+`build.ps1` artifacts and the requested verification. Do not run
+`release-via-ssh.sh`, `release.ps1`, Jsign, or Azure Artifact Signing unless the
+user explicitly asks for a **signed release** or customer distributable. A
+request to rebuild, test, install, or generate an MSI is not by itself a request
+to sign it.
+
 The preferred path builds and packages on Windows but signs on macOS. It copies
 the EXE and MSI over SSH, so Azure credentials never need to be stored on the
 VM:
