@@ -79,6 +79,11 @@
                        Type="string"
                        Value="&quot;[INSTALLFOLDER]Sage50Connector.exe&quot;"
                        KeyPath="yes" />
+        <RegistryValue Root="HKLM"
+                       Key="Software\Rutter\Sage50Connector"
+                       Name="InstallPath"
+                       Type="string"
+                       Value="[INSTALLFOLDER]" />
       </Component>
       <Component Id="NewtonsoftJson" Guid="{1F2DA1C6-B49D-4255-9915-5C4235633D57}">
         <File Id="Newtonsoft.Json.dll" Source="$(var.Sage50Connector.TargetDir)Newtonsoft.Json.dll" KeyPath="yes" />

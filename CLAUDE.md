@@ -57,6 +57,13 @@ If you are already working inside the RDP desktop as the approved user, you can
 instead run `C:\src\Sage50Connector\bin\Release\Sage50Connector.exe` directly
 from PowerShell or File Explorer.
 
+Development copies identify themselves as **Rutter Sage 50 Connector
+(Development)** in the window title and tray menu, prefix tray status text with
+`DEV:`, and log `RuntimeMode=Development` plus the executable path at startup.
+The MSI records its chosen install directory and installed copies keep the plain
+customer-facing name and log `RuntimeMode=Installed`. The process name remains
+`Sage50Connector.exe`; inspect `ExecutablePath` when diagnosing from PowerShell.
+
 Sage 50 does **not** need to be open — see "Sage 50 does not need to be running".
 
 The one-shot executable polls for jobs and exits after

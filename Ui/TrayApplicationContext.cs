@@ -28,11 +28,11 @@ namespace Sage50Connector.Ui
             {
                 Icon = LoadIcon(),
                 Visible = true,
-                Text = "Rutter Sage 50 Connector",
+                Text = RuntimeEnvironment.DisplayName,
             };
 
             ContextMenuStrip menu = new ContextMenuStrip();
-            menu.Items.Add("Open Rutter Sage 50 Connector", null, (s, e) => ShowStatus());
+            menu.Items.Add("Open " + RuntimeEnvironment.DisplayName, null, (s, e) => ShowStatus());
             menu.Items.Add("Sync now", null, (s, e) => RequestSyncNow());
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Exit", null, (s, e) => ExitConnector());
@@ -78,7 +78,7 @@ namespace Sage50Connector.Ui
         {
             SyncStatus s = SyncStatus.Instance;
 
-            string tip = s.Message ?? string.Empty;
+            string tip = RuntimeEnvironment.TrayStatusPrefix + (s.Message ?? string.Empty);
             // NotifyIcon.Text throws above 63 characters.
             if (tip.Length > 60) tip = tip.Substring(0, 57) + "…";
             try { trayIcon.Text = tip; } catch { }

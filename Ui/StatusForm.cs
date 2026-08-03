@@ -27,7 +27,7 @@ namespace Sage50Connector.Ui
 
         public StatusForm()
         {
-            Text = "Rutter Sage 50 Connector";
+            Text = RuntimeEnvironment.DisplayName;
             ClientSize = new Size(470, 430);
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
@@ -205,7 +205,7 @@ namespace Sage50Connector.Ui
             catch (Exception ex)
             {
                 MessageBox.Show("Could not open the log folder: " + ex.Message,
-                    "Rutter Sage 50 Connector", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    RuntimeEnvironment.DisplayName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
     }
