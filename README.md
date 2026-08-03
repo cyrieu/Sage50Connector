@@ -67,6 +67,12 @@ This calls `POST {ApiBaseUrl}/sage-50/save-id`, which creates/reuses the
 Rutter connection and returns the access key + connection id. The tool writes
 `sage50Config.json` itself — no hand-edited JSON.
 
+The normal customer flow is through Rutter Link: enter the Sage 50 company
+name, download the MSI, and copy the generated Company Name, Connection ID, and
+Access Key into the installer. The MSI writes the same `sage50Config.json` shape
+as `--setup`; the access key is masked in the installer and is never written to
+the MSI log.
+
 ## Configuration
 
 The connector reads exactly one config file:
