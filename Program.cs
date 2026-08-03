@@ -204,6 +204,13 @@ namespace Sage50Connector
                     + "; ApiBaseUrl="
                     + Config.ApiBaseUrl
             );
+            WriteToFile(
+                "RuntimeMode="
+                    + RuntimeEnvironment.ModeName
+                    + "; ExecutablePath='"
+                    + RuntimeEnvironment.ExecutablePath
+                    + "'"
+            );
 
             try
             {
