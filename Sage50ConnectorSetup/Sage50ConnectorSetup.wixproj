@@ -8,6 +8,7 @@
     <SchemaVersion>2.0</SchemaVersion>
     <OutputName>RutterSage50ConnectorSetup</OutputName>
     <OutputType>Package</OutputType>
+    <Cultures>neutral,en-us</Cultures>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x86' ">
     <OutputPath>bin\$(Configuration)\</OutputPath>
@@ -24,7 +25,7 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="PrivacyPolicy.rtf" />
-    <EmbeddedResource Include="Installer.wxl" />
+    <EmbeddedResource Include="Installer.en-us.wxl" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Sage50Connector.csproj">
