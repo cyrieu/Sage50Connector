@@ -133,16 +133,32 @@ namespace Sage50Connector.Helpers
                 SchemaVersion = identifier.SchemaVersion ?? "",
             };
 
-            // Accounting periods are a separate load and a company can have none
-            // configured; a company that will not tell us its periods is still a
-            // company worth reporting.
+            // A company can have none of these configured, and one that will not
+            // tell us its periods is still a company worth reporting.
+            //
+            // The collection is sparse, not an ordered dense range: Sage divides a
+            // fiscal year into "as many as 13 periods" and the SDK notes that the
+            // internal set "include[s] a thirteenth period, which many companies
+            // may not use". Unused slots carry DateTime.MinValue, so indexing [0]
+            // and [Count-1] reported 0001-01-01 for Bellwether — a company with
+            // perfectly ordinary periods. Take the extremes of the populated
+            // entries instead.
             try
             {
                 var periods = company.Defaults.GeneralLedger.AccountingPeriods;
-                if (periods != null && periods.Count > 0)
+                var configured = periods == null
+                    ? new List<AccountingPeriod>()
+                    : periods.Where(p => p.From != DateTime.MinValue && p.To != DateTime.MinValue).ToList();
+
+                if (configured.Count > 0)
                 {
-                    info.FiscalYearStart = periods[0].From.ToString("yyyy-MM-dd");
-                    info.FiscalYearEnd = periods[periods.Count - 1].To.ToString("yyyy-MM-dd");
+                    info.FiscalYearStart = configured.Min(p => p.From).ToString("yyyy-MM-dd");
+                    info.FiscalYearEnd = configured.Max(p => p.To).ToString("yyyy-MM-dd");
+                }
+                else if (periods != null && periods.Count > 0)
+                {
+                    global::Sage50Connector.Program.WriteToFile(
+                        "COMPANY_INFO: " + periods.Count + " accounting period slot(s), none populated.");
                 }
             }
             catch (Exception ex)

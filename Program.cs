@@ -1144,14 +1144,22 @@ namespace Sage50Connector
                 request.Content = new StringContent(jsonString, Encoding.UTF8, "application/json");
 
                 var response = await client.SendAsync(request);
+
+                // Always log the status, on both branches. On 2026-08-03 a run
+                // logged 39 "Successfully posted to Rutter." while ngrok recorded
+                // an HTTP 500 for every one of those reports — the long-standing
+                // "Unexplained" entry in CLAUDE.md, reproduced. This code reads
+                // correct, so the next occurrence needs the status code in the log
+                // to say whether the connector is mis-reporting or genuinely
+                // receiving 2xx. Do not remove the code in either message.
                 if (!response.IsSuccessStatusCode)
                 {
                     var responseContent = await response.Content.ReadAsStringAsync();
-                    WriteToFile(DateTime.Now + $": Failed to post to Rutter. Status code: {response.StatusCode}, Response: {responseContent}");
+                    WriteToFile(DateTime.Now + $": Failed to post to Rutter. Status code: {(int)response.StatusCode} {response.StatusCode}, Response: {responseContent}");
                 }
                 else
                 {
-                    WriteToFile(DateTime.Now + ": Successfully posted to Rutter.");
+                    WriteToFile(DateTime.Now + $": Successfully posted to Rutter. Status code: {(int)response.StatusCode} {response.StatusCode}");
                 }
             }
         }

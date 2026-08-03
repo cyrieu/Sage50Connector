@@ -641,11 +641,42 @@ real error further up the log.
 - A failed poll must not end the process outright — retry with backoff.
 - Harmless warning: `CS0252` in `Sage50Repository.cs`.
 
-## Unexplained
+## Unexplained: the connector logs success on HTTP 500
 
-With the pre-fix build, 330 error reports were logged as "Successfully posted to
-Rutter" while the backend returned **500** to every one (confirmed by replaying
-the exact payload). `PostToRutterAsync` checks `IsSuccessStatusCode` correctly and
-the binary matched HEAD. The fix made those posts genuinely succeed, so it is
-masked now — but connector logs may be capable of reporting success on failure.
-Worth chasing.
+**Reproduced 2026-08-03 with independent evidence. Cause still unknown. Do not
+trust "Successfully posted to Rutter." as proof a report was accepted.**
+
+First seen as 330 error reports logged as success while the backend returned 500
+to every one. It happened again on the first `COMPANY_INFO` run, and this time
+ngrok's inspector recorded what the connector actually received:
+
+```
+20 x 500  /versioned/ingest   (reports — type=LIST_FETCH, COMPANY_INFO)
+20 x 200  /versioned/ingest   (polls — no type field)
+```
+
+The connector log for the same window: **39 "Successfully posted to Rutter.",
+zero "Failed to post"**. Reports and polls were told apart by request body
+(`type` present or absent) and by the response, so the mapping is not a guess:
+every 500 was a report, and every report was logged as a success.
+
+Ruled out:
+
+- **Not stale code.** The exe was built from the running HEAD, and its metadata
+  contains the `Failed to post to Rutter` literal — the branch exists in the
+  binary.
+- **Not a misread of which call fails.** Polls returned 200 with a job body
+  throughout; the connector kept receiving jobs and never logged a poll failure.
+- **Not the source.** `PostToRutterAsync` checks `IsSuccessStatusCode`, and
+  `HttpClient.SendAsync` does not throw on 5xx, so a 500 should take the failure
+  branch.
+
+`PostToRutterAsync` now logs the numeric status on **both** branches, so the next
+occurrence says whether the connector is mis-reporting or genuinely being handed
+a 2xx. Keep that.
+
+Why it matters beyond the log line: a rejected report leaves the job
+non-terminal, and Rutter re-serves an in-progress job on every poll. The observed
+result was a job re-fetched every ~2 seconds indefinitely, with nothing
+persisting and nothing in the connector log suggesting a problem. Verify a sync
+in the database, never from the connector log.
