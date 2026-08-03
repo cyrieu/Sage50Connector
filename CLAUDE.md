@@ -343,8 +343,9 @@ Practical notes from doing it:
 - The grant is **per company**. A new company means a fresh `Pending` and a
   fresh approval, even though the binary is unchanged — each company has its own
   `APIACCSS.DAT`.
-- Switching companies is just `CompanyName` in `sage50Config.json`; keep a
-  backup, since one install serves one company.
+- One connector configuration serves one company. Select it through Rutter Link:
+  the connector enumerates Sage's company list and stores both the exact SDK name
+  and stable company GUID. Do not ask customers to type the company name.
 
 ## Runtime configuration and logs
 
@@ -356,6 +357,7 @@ Legacy fallback, still honored: `C:\Users\Default\Documents\sage50Config.json`
 
 ```json
 {
+  "CompanyGuid": "<stable Sage company GUID>",
   "CompanyName": "Bellwether Garden Supply",
   "AccessKey": "<credential inbound access token, iat_...>",
   "ConnectionId": "<Rutter item ID>",
@@ -375,9 +377,11 @@ Logs: `%ProgramData%\Rutter\Sage50Connector\log.txt` (legacy: Documents\log.txt)
 The connector logs config path, company name, connection ID and access-token
 *length* — never the token itself.
 
-`CompanyName` must match the Sage company exactly. A mismatch yields
-`Error: There are no companies with that name`, which is a different failure from
-`Pending`.
+New configurations resolve the company by `CompanyGuid`, so a later company
+rename does not break the connector. `CompanyName` is retained for display and
+as a fallback for legacy configurations; in that fallback it must match Sage
+exactly. A mismatch yields `Error: There are no companies with that name`, which
+is a different failure from `Pending`.
 
 ## Rutter authentication contract
 
@@ -389,17 +393,17 @@ client ID, or client secret. A 401 `Invalid access token/connectionId pair` mean
 the pair is wrong, the credential has no `inbound_access_token`, or the exe is
 reading a different config/build.
 
-Provisioning without hand-editing JSON:
+Customer provisioning does not expose either value. Rutter Link creates a
+provisional item with `POST /sage-50/setup-session`, downloads the generic MSI,
+and opens `rutter-sage50://setup?...`. The installed connector enumerates
+`CompanyManager.Instance.Companies`, lets the customer select an exact SDK
+company, then exchanges the one-time setup token at
+`POST /sage-50/complete-setup`. The response is written to the config above and
+the token cannot be replayed. Link polls `/sage-50/link-verify` until the
+connector has finalized the item and its initial sync has completed.
 
-```
-Sage50Connector.exe --setup "<CompanyName>" <OrgId> [ApiBaseUrl]
-```
-
-This calls `POST {ApiBaseUrl}/sage-50/save-id`, which mints the item, credential
-and inbound token and returns the config to write. **That route currently exists
-only on the `paperclip/RUT-29-re-setup-the-sage-50-integration` branch of
-rutter-backend** — it must ship to production before `--setup` works for
-customers.
+`POST /sage-50/save-id` and the `--setup` command remain available as a legacy
+development/recovery path; they are not the customer onboarding flow.
 
 ## The ingest protocol
 
@@ -651,8 +655,9 @@ survives a short restart, but a long outage still exits the process by design.
 
 - **Every upgrade requires every customer to re-approve** in Sage, because the
   grant is keyed to the executable's MD5. Rules out silent auto-update.
-- **`/sage-50/save-id` is not in production**, so `--setup` and the MSI's
-  `WriteSageConfigJson` custom action cannot provision a customer yet.
+- The setup-session and completion routes must deploy before the Link flow is
+  usable. Production's `SAGE_50_INSTALLER_URL` must point to a signed MSI that
+  contains the `rutter-sage50` protocol registration.
 - Ordinary development builds are unsigned. Customer artifacts must be produced
   with `release.ps1`, which signs both the EXE and MSI through Azure Artifact
   Signing before verification.
@@ -669,34 +674,31 @@ survives a short restart, but a long outage still exits the process by design.
   Vendors also support ID_FETCH, CREATE, UPDATE and DELETE. No payments received,
   credit memos, inventory items, employees or jobs — QuickBooks Desktop covers
   roughly 40 entities for comparison.
-- **One install serves one company** — `CompanyName` is a single value.
+- **One connector configuration serves one company** — its stable Sage company
+  GUID and exact SDK name are selected by the customer in the connector.
 - Inbound access token is stored plaintext in `%ProgramData%` and logged
   plaintext by the backend's ingest middleware (deliberately deferred).
 
 ## Installing the MSI
 
 ```
-msiexec /i RutterSage50ConnectorSetup.msi /qn ^
-  COMPANYNAME="Bellwether Garden Supply" ACCESSKEY=iat_... CONNECTIONID=<itemId> ^
-  /l*v install.log
+msiexec /i RutterSage50ConnectorSetup.msi /qn /l*v install.log
 ```
 
-`COMPANYNAME`/`ACCESSKEY`/`CONNECTIONID` are written to `sage50Config.json` by
-the `WriteSageConfigJson` custom action; omit them and provision later with
-`--setup`. The MSI registers the tray connector under the machine-wide `Run`
-key, so it starts in the next logged-on user's interactive session. Launch it
-from the Start menu to run it immediately, then approve that exact executable in
-Sage as the same Windows user.
+The MSI is generic: it contains no company name, connection ID, or credential.
+It registers both the tray connector under the machine-wide `Run` key and the
+`rutter-sage50` URL protocol. After installation, return to Rutter Link and click
+**Choose company in connector**. The deep link opens the selector and provisions
+the chosen company. The customer must then approve that exact executable in Sage
+as the same Windows user.
 
-**A successful build proves nothing about the installer.** The custom action
-failed to load for a while and every build was green — only `msiexec` surfaced
-it. Test with an actual install, and read `/l*v` output; a bare 1603 hides the
-real error further up the log.
+**A successful build proves nothing about the installer.** Test with an actual
+install, verify the custom protocol opens the installed executable, and read
+`/l*v` output; a bare 1603 hides the real error further up the log.
 
 ## Connector-side pitfalls already fixed — do not regress
 
 - WiX `Product.wxs`: package shared DLLs from `$(var.Sage50Connector.TargetDir)`.
-- Custom actions are packed by a post-build `MakeSfxCA` step into `*.CA.dll`.
 - A failed poll must not end the process outright — retry with backoff.
 - Harmless warning: `CS0252` in `Sage50Repository.cs`.
 
