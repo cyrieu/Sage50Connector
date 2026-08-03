@@ -412,7 +412,8 @@ The connector polls `POST {ApiBaseUrl}/versioned/ingest` with
 `X-Rutter-Version: 2024-04-30` and `Authorization: Bearer <iat_…>`, body
 `{"connection":{"id":"<itemId>"}}`. Rutter replies with the next job:
 
-- `LIST_FETCH` — Accounts, Vendors, Customers, Company Info
+- `LIST_FETCH` — Accounts, Vendors, Customers, Company Info, Journal Entries,
+  Invoices, Bills, Expenses
 - `ID_FETCH` — one Vendor by `parameters.platform_id`
 - `CREATE` — Vendors
 - `UPDATE` — one Vendor; fields to apply come from the job's `create_body`
@@ -447,9 +448,59 @@ a transaction fetch can usefully ask for.
 
 **How initial and incremental sync actually behave here — and the four ways the
 current design is wrong about it — is in [docs/sync-model.md](docs/sync-model.md).**
-Read it before adding transaction entities: the paging strategy that works for 156
-accounts is quadratic, and Rutter currently treats "job enqueued" as "refresh
-complete".
+Read it before scaling the transaction entities: the paging strategy that works
+for 156 accounts is quadratic, and Rutter currently treats "job enqueued" as
+"refresh complete".
+
+### Transactions: journal entries, invoices, bills, expenses
+
+Written 2026-08-03, **not yet built or run** — see "Known gaps". Every property
+name and type below was verified by reflecting on `Sage.Peachtree.API` 2026.1 and
+cross-checked against the SDK's own samples, but the first build is still the
+real check.
+
+| Rutter entity | Sage factory | Lines |
+|---|---|---|
+| `JOURNAL_ENTRIES` | `GeneralJournalEntryFactory` | `GeneralJournalEntryLines` |
+| `INVOICES` | `SalesInvoiceFactory` (AR) | `ApplyToSalesLines` |
+| `BILLS` | `PurchaseInvoiceFactory` (AP) | `ApplyToPurchasesLines` |
+| `EXPENSES` | `PaymentFactory` | `ApplyToExpenseLines` **and** `ApplyToInvoiceLines` |
+
+Four things about Sage's model that shape this code:
+
+**A transaction has no ID, so `$.id` is its key GUID.** Accounts and vendors have
+an `ID` string; transactions do not. The human-facing number is
+`ReferenceNumber`, and it is *not* unique — two journal entries can share one — so
+using it as the primary key would collapse rows the way the PascalCase bug did.
+The GUID is reported as `id` and `referenceNumber` is sent alongside it.
+
+**References are GUIDs; Rutter links on ID strings.** A line points at its account
+through an `EntityReference`, which exposes only `.Guid` and `.Load(company)`.
+Rutter's `platform_id` for an account is `10200-00`, not a GUID, so a reference
+has to be resolved before a mapper can link it. `ReferenceIndex` reads the
+account, customer and vendor lists once per fetch and indexes them by key — the
+same join Sage's own sample does
+(`join vendor in vendorList on payment.VendorReference equals vendor.Key`).
+Resolving each reference individually would be one Sage round trip per line.
+Inventory items and jobs are *not* resolved, because Sage 50 has no ITEMS entity
+in Rutter to link to; they are reported as `inventoryItemGuid` / `jobGuid` so it
+is obvious they are not platform ids.
+
+**Line collections are padded with unused slots.** `TransactionLine.IsUsed` is
+false on Sage's empty slots, exactly like the unpopulated accounting periods that
+made `fiscalYearStart` read `0001-01-01`. An unused line is not a zero-amount
+line; the reads drop them.
+
+**`Payment` is both an expense and a bill payment.** Expense lines hit GL
+accounts directly; invoice lines settle bills that already exist. Both
+collections are reported so a mapper can distinguish them, and
+`invoiceLines[].invoiceGuid` is the same GUID the BILLS read uses as its `id`, so
+a future `BILL_PAYMENTS` entity links without extra work.
+
+Two Sage quirks worth keeping in mind here: `PurchaseInvoice.WaitingForBill` is an
+**int**, not a bool (reported as Sage stores it rather than coerced), and dates are
+sent as `yyyy-MM-dd` rather than timestamps because Sage stores no timezone and a
+conversion downstream could move a transaction to the previous day.
 
 `UPDATE` applies only the fields present in the body: a null means "not
 supplied", not "clear this", so a partial update cannot blank a vendor's email.
@@ -606,10 +657,18 @@ survives a short restart, but a long outage still exits the process by design.
   with `release.ps1`, which signs both the EXE and MSI through Azure Artifact
   Signing before verification.
 - **No auto-update mechanism.**
-- **Entity coverage is thin.** Accounts, vendors and customers read; vendors
-  also support ID_FETCH, CREATE, UPDATE and DELETE. No invoices, bills,
-  payments, or journal entries — QuickBooks Desktop covers roughly 40 entities
-  for comparison.
+- **The transaction reads are written but never executed.** Journal entries,
+  invoices, bills and expenses were added 2026-08-03 and have not been compiled,
+  run, or seen against real data. Nothing on the Rutter side normalizes them yet:
+  they have no `platform_types`, no mappers, and are not in the endpoints'
+  platform allowlists, so `GET /invoices` and friends will not serve them until
+  the first sync produces payloads to generate types from. The sequence is in
+  rutter-backend `platforms/sage_50/CLAUDE.md` under "Adding an entity".
+- **Entity coverage.** Read: accounts, customers, vendors, company info (all
+  verified end to end), plus the four transaction entities above (unverified).
+  Vendors also support ID_FETCH, CREATE, UPDATE and DELETE. No payments received,
+  credit memos, inventory items, employees or jobs — QuickBooks Desktop covers
+  roughly 40 entities for comparison.
 - **One install serves one company** — `CompanyName` is a single value.
 - Inbound access token is stored plaintext in `%ProgramData%` and logged
   plaintext by the backend's ingest middleware (deliberately deferred).

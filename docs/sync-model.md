@@ -64,6 +64,18 @@ and n/50 × full memory churn. The connector is 32-bit by necessity (the Sage SD
 is x86), so ~2 GB of address space is the ceiling a large `Load()` runs into
 first. Bellwether hides all of this: 156 accounts is four loads of a small list.
 
+The transaction reads make this the first thing to fix rather than a
+someday item, for two compounding reasons:
+
+- Transactions are the high-cardinality entities. A company with 40k invoices
+  pages 800 times, and each page loads all 40k invoices *and* walks their lines.
+- Each page also rebuilds `ReferenceIndex`, which loads the account, customer and
+  vendor lists again. So a page costs one transaction load plus up to three more.
+
+Neither is a reason to hold the reads back — correctness first, and Bellwether
+will not notice — but do not point this at a real ledger before the id-list cache
+below exists.
+
 And the part already documented in `CLAUDE.md`: incremental filtering rests on
 `LastSavedAt`, which Sage leaves unset on records untouched since the company was
 created (29 of 29 vendors, 34 of 35 customers at Bellwether), while accounts

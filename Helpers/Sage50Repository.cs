@@ -213,6 +213,463 @@ namespace Sage50Connector.Helpers
             );
         }
 
+        #region transaction reads
+
+        /// <summary>Parses the job's updated_at cutoff, or null for "everything".</summary>
+        private static DateTime? ParseCutoff(string updatedAt)
+        {
+            if (string.IsNullOrEmpty(updatedAt))
+            {
+                return null;
+            }
+            return DateTime.Parse(updatedAt);
+        }
+
+        /// <summary>
+        /// A date with no time, which is what Sage stores for transaction dates.
+        /// Sending a date rather than a timestamp keeps a timezone conversion
+        /// somewhere downstream from moving a transaction to the previous day.
+        /// </summary>
+        private static string DateOnly(DateTime? value)
+        {
+            if (value == null || value == default(DateTime))
+            {
+                return null;
+            }
+            return value.Value.ToString("yyyy-MM-dd");
+        }
+
+        /// <summary>ISO 8601, or null when Sage never set the value.</summary>
+        private static string Timestamp(DateTime? value)
+        {
+            if (!HasTimestamp(value))
+            {
+                return null;
+            }
+            return value.Value.ToString("o");
+        }
+
+        /// <summary>
+        /// Reads the lists whose IDs transaction references point at, and indexes
+        /// them by key. Only what a given entity needs is loaded — a journal entry
+        /// never names a customer.
+        /// </summary>
+        private ReferenceIndex BuildReferenceIndex(bool accounts, bool customers, bool vendors)
+        {
+            var index = new ReferenceIndex();
+            var factories = CompanyManager.Instance.CurrentCompany.Factories;
+
+            if (accounts)
+            {
+                var list = factories.AccountFactory.List();
+                list.Load();
+                foreach (Account account in list)
+                {
+                    index.Add(account.Key, account.ID);
+                }
+            }
+
+            if (customers)
+            {
+                var list = factories.CustomerFactory.List();
+                list.Load();
+                foreach (Customer customer in list)
+                {
+                    index.Add(customer.Key, customer.ID);
+                }
+            }
+
+            if (vendors)
+            {
+                var list = factories.VendorFactory.List();
+                list.Load();
+                foreach (Vendor vendor in list)
+                {
+                    index.Add(vendor.Key, vendor.ID);
+                }
+            }
+
+            return index;
+        }
+
+        /// <summary>
+        /// Sage pads a transaction's line collection with unused slots, the same
+        /// way it pads accounting periods. An unused line is not a zero-amount
+        /// line, it is not a line at all, so it must not be reported.
+        /// </summary>
+        private static bool IsRealLine(TransactionLine line)
+        {
+            return line != null && line.IsUsed;
+        }
+
+        private static SageAddressBody MapAddress(NameAndAddress source)
+        {
+            if (source == null)
+            {
+                return null;
+            }
+
+            Address address = source.Address;
+            return new SageAddressBody
+            {
+                Name = source.Name,
+                Address1 = address == null ? null : address.Address1,
+                Address2 = address == null ? null : address.Address2,
+                City = address == null ? null : address.City,
+                State = address == null ? null : address.State,
+                Zip = address == null ? null : address.Zip,
+                Country = address == null ? null : address.Country,
+            };
+        }
+
+        /// <summary>
+        /// Fills the fields every transaction shares. The concrete reads add the
+        /// party and the lines.
+        /// </summary>
+        private static void MapTransactionHeader(TransactionBodyBase body, Transaction source, ReferenceIndex index)
+        {
+            body.ID = ReferenceIndex.GuidOf(source.Key);
+            body.ReferenceNumber = source.ReferenceNumber;
+            body.Date = DateOnly(source.Date);
+            body.Amount = source.Amount;
+            body.IsPosted = source.IsPosted;
+            body.AccountID = index.Resolve(source.AccountReference);
+            body.LastSavedAt = Timestamp(source.LastSavedAt);
+        }
+
+        private static void MapLineBase(TransactionLineBodyBase body, TransactionLine source, ReferenceIndex index)
+        {
+            body.ID = ReferenceIndex.GuidOf(source.Key);
+            body.AccountID = index.Resolve(source.AccountReference);
+            body.Amount = source.Amount;
+            body.Description = source.Description;
+        }
+
+        /// <summary>
+        /// General journal entries. The only entity here whose lines are the
+        /// whole point — the header carries no party at all.
+        /// </summary>
+        public List<JournalEntryBody> GetJournalEntries(string companyName, string updatedAt = null)
+        {
+            var results = new List<JournalEntryBody>();
+            EnsureCompanyConnected(companyName);
+            if (CurrentCompanyDesconnected)
+            {
+                return results;
+            }
+
+            DateTime? cutoff = ParseCutoff(updatedAt);
+            ReferenceIndex index = BuildReferenceIndex(accounts: true, customers: false, vendors: false);
+
+            var entries = CompanyManager.Instance.CurrentCompany.Factories.GeneralJournalEntryFactory.List();
+            entries.Load();
+
+            int total = 0;
+            int withoutTimestamp = 0;
+            foreach (GeneralJournalEntry entry in entries)
+            {
+                total++;
+                if (!HasTimestamp(entry.LastSavedAt))
+                {
+                    withoutTimestamp++;
+                }
+                if (!ChangedSince(entry.LastSavedAt, cutoff))
+                {
+                    continue;
+                }
+
+                var body = new JournalEntryBody
+                {
+                    IsReversingTransaction = entry.IsReversingTransaction,
+                    PartnerGuid = ReferenceIndex.GuidOf(entry.PartnerReference),
+                };
+                MapTransactionHeader(body, entry, index);
+
+                if (entry.GeneralJournalEntryLines != null)
+                {
+                    foreach (GeneralJournalEntryLine line in entry.GeneralJournalEntryLines)
+                    {
+                        if (!IsRealLine(line))
+                        {
+                            continue;
+                        }
+                        var lineBody = new JournalEntryLineBody
+                        {
+                            JobGuid = ReferenceIndex.GuidOf(line.JobReference),
+                        };
+                        MapLineBase(lineBody, line, index);
+                        body.Lines.Add(lineBody);
+                    }
+                }
+
+                results.Add(body);
+            }
+
+            LogFilterOutcome("JOURNAL_ENTRIES", total, withoutTimestamp, results.Count, cutoff);
+            return results;
+        }
+
+        /// <summary>Sales invoices — accounts receivable.</summary>
+        public List<InvoiceBody> GetInvoices(string companyName, string updatedAt = null)
+        {
+            var results = new List<InvoiceBody>();
+            EnsureCompanyConnected(companyName);
+            if (CurrentCompanyDesconnected)
+            {
+                return results;
+            }
+
+            DateTime? cutoff = ParseCutoff(updatedAt);
+            ReferenceIndex index = BuildReferenceIndex(accounts: true, customers: true, vendors: false);
+
+            var invoices = CompanyManager.Instance.CurrentCompany.Factories.SalesInvoiceFactory.List();
+            invoices.Load();
+
+            int total = 0;
+            int withoutTimestamp = 0;
+            foreach (SalesInvoice invoice in invoices)
+            {
+                total++;
+                if (!HasTimestamp(invoice.LastSavedAt))
+                {
+                    withoutTimestamp++;
+                }
+                if (!ChangedSince(invoice.LastSavedAt, cutoff))
+                {
+                    continue;
+                }
+
+                var body = new InvoiceBody
+                {
+                    CustomerID = index.Resolve(invoice.CustomerReference),
+                    AmountDue = invoice.AmountDue,
+                    DateDue = DateOnly(invoice.DateDue),
+                    DiscountAmount = invoice.DiscountAmount,
+                    DiscountDate = DateOnly(invoice.DiscountDate),
+                    FreightAmount = invoice.FreightAmount,
+                    SalesTaxAmount = invoice.SalesTaxAmount,
+                    CustomerPurchaseOrderNumber = invoice.CustomerPurchaseOrderNumber,
+                    TermsDescription = invoice.TermsDescription,
+                    ShipDate = DateOnly(invoice.ShipDate),
+                    ShipVia = invoice.ShipVia,
+                    DropShip = invoice.DropShip,
+                    CustomerNote = invoice.CustomerNote,
+                    InternalNote = invoice.InternalNote,
+                    StatementNote = invoice.StatementNote,
+                    FreightAccountID = index.Resolve(invoice.FreightAccountReference),
+                    SalesRepresentativeGuid = ReferenceIndex.GuidOf(invoice.SalesRepresentativeReference),
+                    SalesTaxCodeGuid = ReferenceIndex.GuidOf(invoice.SalesTaxCodeReference),
+                    ShipToAddress = MapAddress(invoice.ShipToAddress),
+                };
+                MapTransactionHeader(body, invoice, index);
+
+                if (invoice.ApplyToSalesLines != null)
+                {
+                    foreach (SalesInvoiceSalesLine line in invoice.ApplyToSalesLines)
+                    {
+                        if (!IsRealLine(line))
+                        {
+                            continue;
+                        }
+                        var lineBody = new InvoiceLineBody
+                        {
+                            Quantity = line.Quantity,
+                            UnitPrice = line.UnitPrice,
+                            InventoryItemGuid = ReferenceIndex.GuidOf(line.InventoryItemReference),
+                            JobGuid = ReferenceIndex.GuidOf(line.JobReference),
+                        };
+                        MapLineBase(lineBody, line, index);
+                        body.Lines.Add(lineBody);
+                    }
+                }
+
+                results.Add(body);
+            }
+
+            LogFilterOutcome("INVOICES", total, withoutTimestamp, results.Count, cutoff);
+            return results;
+        }
+
+        /// <summary>Purchase invoices — accounts payable.</summary>
+        public List<BillBody> GetBills(string companyName, string updatedAt = null)
+        {
+            var results = new List<BillBody>();
+            EnsureCompanyConnected(companyName);
+            if (CurrentCompanyDesconnected)
+            {
+                return results;
+            }
+
+            DateTime? cutoff = ParseCutoff(updatedAt);
+            ReferenceIndex index = BuildReferenceIndex(accounts: true, customers: false, vendors: true);
+
+            var bills = CompanyManager.Instance.CurrentCompany.Factories.PurchaseInvoiceFactory.List();
+            bills.Load();
+
+            int total = 0;
+            int withoutTimestamp = 0;
+            foreach (PurchaseInvoice bill in bills)
+            {
+                total++;
+                if (!HasTimestamp(bill.LastSavedAt))
+                {
+                    withoutTimestamp++;
+                }
+                if (!ChangedSince(bill.LastSavedAt, cutoff))
+                {
+                    continue;
+                }
+
+                var body = new BillBody
+                {
+                    VendorID = index.Resolve(bill.VendorReference),
+                    AmountDue = bill.AmountDue,
+                    DateDue = DateOnly(bill.DateDue),
+                    DiscountAmount = bill.DiscountAmount,
+                    DiscountDate = DateOnly(bill.DiscountDate),
+                    CustomerSalesOrderNumber = bill.CustomerSalesOrderNumber,
+                    TermsDescription = bill.TermsDescription,
+                    ShipVia = bill.ShipVia,
+                    DropShip = bill.DropShip,
+                    VendorNote = bill.VendorNote,
+                    InternalNote = bill.InternalNote,
+                    WaitingForBill = bill.WaitingForBill,
+                    ShipToAddress = MapAddress(bill.ShipToAddress),
+                };
+                MapTransactionHeader(body, bill, index);
+
+                if (bill.ApplyToPurchasesLines != null)
+                {
+                    foreach (PurchaseInvoicePurchasesLine line in bill.ApplyToPurchasesLines)
+                    {
+                        if (!IsRealLine(line))
+                        {
+                            continue;
+                        }
+                        var lineBody = new BillLineBody
+                        {
+                            Quantity = line.Quantity,
+                            UnitPrice = line.UnitPrice,
+                            InventoryItemGuid = ReferenceIndex.GuidOf(line.InventoryItemReference),
+                            JobGuid = ReferenceIndex.GuidOf(line.JobReference),
+                        };
+                        MapLineBase(lineBody, line, index);
+                        body.Lines.Add(lineBody);
+                    }
+                }
+
+                results.Add(body);
+            }
+
+            LogFilterOutcome("BILLS", total, withoutTimestamp, results.Count, cutoff);
+            return results;
+        }
+
+        /// <summary>
+        /// Payments. Sage models "write a check" and "pay a bill" as one type, so
+        /// both line collections are reported: expense lines hit GL accounts
+        /// directly, invoice lines settle bills that already exist.
+        /// </summary>
+        public List<ExpenseBody> GetExpenses(string companyName, string updatedAt = null)
+        {
+            var results = new List<ExpenseBody>();
+            EnsureCompanyConnected(companyName);
+            if (CurrentCompanyDesconnected)
+            {
+                return results;
+            }
+
+            DateTime? cutoff = ParseCutoff(updatedAt);
+            ReferenceIndex index = BuildReferenceIndex(accounts: true, customers: false, vendors: true);
+
+            var payments = CompanyManager.Instance.CurrentCompany.Factories.PaymentFactory.List();
+            payments.Load();
+
+            int total = 0;
+            int withoutTimestamp = 0;
+            int expenseLineCount = 0;
+            int invoiceLineCount = 0;
+            foreach (Payment payment in payments)
+            {
+                total++;
+                if (!HasTimestamp(payment.LastSavedAt))
+                {
+                    withoutTimestamp++;
+                }
+                if (!ChangedSince(payment.LastSavedAt, cutoff))
+                {
+                    continue;
+                }
+
+                var body = new ExpenseBody
+                {
+                    VendorID = index.Resolve(payment.VendorReference),
+                    Memo = payment.Memo,
+                    PaymentMethod = payment.PaymentMethod,
+                    DateSent = DateOnly(payment.DateSent),
+                    IsElectronicPayment = payment.IsElectronicPayment,
+                    ElectronicIdentifier = payment.ElectronicIdentifier,
+                    DiscountAccountID = index.Resolve(payment.DiscountAccountReference),
+                    MainAddress = MapAddress(payment.MainAddress),
+                };
+                MapTransactionHeader(body, payment, index);
+
+                if (payment.ApplyToExpenseLines != null)
+                {
+                    foreach (PaymentExpenseLine line in payment.ApplyToExpenseLines)
+                    {
+                        if (!IsRealLine(line))
+                        {
+                            continue;
+                        }
+                        var lineBody = new ExpenseLineBody
+                        {
+                            Quantity = line.Quantity,
+                            UnitPrice = line.UnitPrice,
+                            InventoryItemGuid = ReferenceIndex.GuidOf(line.InventoryItemReference),
+                            JobGuid = ReferenceIndex.GuidOf(line.JobReference),
+                        };
+                        MapLineBase(lineBody, line, index);
+                        body.ExpenseLines.Add(lineBody);
+                        expenseLineCount++;
+                    }
+                }
+
+                if (payment.ApplyToInvoiceLines != null)
+                {
+                    foreach (PaymentInvoiceLine line in payment.ApplyToInvoiceLines)
+                    {
+                        if (!IsRealLine(line))
+                        {
+                            continue;
+                        }
+                        var lineBody = new PaymentAppliedInvoiceLineBody
+                        {
+                            AmountPaid = line.AmountPaid,
+                            DiscountAmount = line.DiscountAmount,
+                            DiscountAccountID = index.Resolve(line.DiscountAccountReference),
+                            InvoiceGuid = ReferenceIndex.GuidOf(line.InvoiceReference),
+                            JobGuid = ReferenceIndex.GuidOf(line.JobReference),
+                        };
+                        MapLineBase(lineBody, line, index);
+                        body.InvoiceLines.Add(lineBody);
+                        invoiceLineCount++;
+                    }
+                }
+
+                results.Add(body);
+            }
+
+            LogFilterOutcome("EXPENSES", total, withoutTimestamp, results.Count, cutoff);
+            global::Sage50Connector.Program.WriteToFile(
+                "EXPENSES: " + expenseLineCount + " expense line(s) and "
+                    + invoiceLineCount + " applied-to-bill line(s) across "
+                    + results.Count + " payment(s).");
+            return results;
+        }
+
+        #endregion
+
         public List<ChartofVendor> GetVendors(string companyName, string updatedAt = null)
         {
             EnsureCompanyConnected(companyName);
