@@ -352,12 +352,33 @@ The connector polls `POST {ApiBaseUrl}/versioned/ingest` with
 `{"connection":{"id":"<itemId>"}}`. Rutter replies with the next job:
 
 - `LIST_FETCH` — Accounts, Vendors, Customers
+- `ID_FETCH` — one Vendor by `parameters.platform_id`
 - `CREATE` — Vendors
+- `UPDATE` — one Vendor; fields to apply come from the job's `create_body`
+- `DELETE` — one Vendor by `parameters.platform_id`
 - `NOOP` — nothing to do; the connector sleeps 5 minutes
 
 The connector reports a result by POSTing back to the same endpoint with
 `job_id`, `type`, `platform_entity`, `parameters`, and either `data` or
 `error_message`.
+
+A job the connector cannot service **must still be reported** with an
+`error_message`. Rutter re-serves an in-progress job on every poll, so a job
+that is only logged and skipped is handed back forever.
+
+Verified end to end against Bellwether on 2026-08-03, one vendor through its
+whole lifecycle: `CREATE` wrote it, `ID_FETCH` read it back, `UPDATE` renamed
+it, `DELETE` removed it, and a follow-up `ID_FETCH` found nothing — confirming
+the delete reached Sage and not just Rutter's copy.
+
+Only vendors are wired for the single-record jobs. Any other entity is reported
+as unsupported rather than silently ignored.
+
+`UPDATE` applies only the fields present in the body: a null means "not
+supplied", not "clear this", so a partial update cannot blank a vendor's email.
+`DELETE` takes its id from the job's own `parameters`, never from the response
+body — the connector is reporting on work Rutter asked for, and trusting it to
+name a different row would let a buggy client delete arbitrary data.
 
 ### Paging
 
@@ -512,8 +533,10 @@ survives a short restart, but a long outage still exits the process by design.
   under the `LocalSystem` default. Installing with a real service account has
   not been exercised — only the LocalSystem default path was tested.
 - **No auto-update mechanism.**
-- **Entity coverage is accounts/vendors/customers read plus CREATE vendor.** No
-  invoices, bills, payments, or journal entries.
+- **Entity coverage is thin.** Accounts, vendors and customers read; vendors
+  also support ID_FETCH, CREATE, UPDATE and DELETE. No invoices, bills,
+  payments, or journal entries — QuickBooks Desktop covers roughly 40 entities
+  for comparison.
 - **One install serves one company** — `CompanyName` is a single value.
 - Inbound access token is stored plaintext in `%ProgramData%` and logged
   plaintext by the backend's ingest middleware (deliberately deferred).
