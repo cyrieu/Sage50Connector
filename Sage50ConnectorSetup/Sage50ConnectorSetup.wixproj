@@ -23,6 +23,10 @@
     <Compile Include="Product.wxs" />
   </ItemGroup>
   <ItemGroup>
+    <Content Include="PrivacyPolicy.rtf" />
+    <EmbeddedResource Include="Installer.en-us.wxl" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\Sage50Connector.csproj">
       <Name>Sage50Connector</Name>
       <Project>{1A2850F1-40CB-4F8F-9535-95DEFCD8983D}</Project>
