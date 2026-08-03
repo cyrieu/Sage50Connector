@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<WixLocalization Culture="en-us" xmlns="http://schemas.microsoft.com/wix/2006/localization">
+<WixLocalization xmlns="http://schemas.microsoft.com/wix/2006/localization">
   <String Id="LicenseAgreementDlgDescription">Please review the following privacy policy carefully</String>
   <String Id="LicenseAgreementDlgTitle">{\WixUI_Font_Title}End-User Privacy Policy</String>
   <String Id="LicenseAgreementDlgLicenseAcceptedCheckBox">I have &amp;read and acknowledge the End-User Privacy Policy</String>

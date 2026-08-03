@@ -24,7 +24,7 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="PrivacyPolicy.rtf" />
-    <EmbeddedResource Include="Installer.en-us.wxl" />
+    <EmbeddedResource Include="Installer.wxl" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Sage50Connector.csproj">
