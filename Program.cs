@@ -83,6 +83,15 @@ namespace Sage50Connector
         public static string ConnectionId;
 
         private static ConnectorConfig Config;
+        private static bool winFormsInitialized;
+
+        private static void InitializeWinForms()
+        {
+            if (winFormsInitialized) return;
+            System.Windows.Forms.Application.EnableVisualStyles();
+            System.Windows.Forms.Application.SetCompatibleTextRenderingDefault(false);
+            winFormsInitialized = true;
+        }
 
         /// <summary>
         /// Entry point.
@@ -171,8 +180,7 @@ namespace Sage50Connector
                     return 0;
                 }
 
-                System.Windows.Forms.Application.EnableVisualStyles();
-                System.Windows.Forms.Application.SetCompatibleTextRenderingDefault(false);
+                InitializeWinForms();
                 System.Windows.Forms.Application.Run(new Ui.TrayApplicationContext());
                 return 0;
             }
@@ -248,8 +256,7 @@ namespace Sage50Connector
                     apiBaseUrl = ConnectorConfig.DefaultApiBaseUrl;
                 }
 
-                System.Windows.Forms.Application.EnableVisualStyles();
-                System.Windows.Forms.Application.SetCompatibleTextRenderingDefault(false);
+                InitializeWinForms();
                 using (var form = new Ui.CompanySelectionForm(token, apiBaseUrl))
                 {
                     return form.ShowDialog() == System.Windows.Forms.DialogResult.OK ? 0 : 1;
