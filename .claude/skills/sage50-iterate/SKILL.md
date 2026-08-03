@@ -1,6 +1,6 @@
 ---
 name: sage50-iterate
-description: Run one end-to-end Sage 50 connector iteration - push, rebuild on the Windows VM, re-approve Sage access via a computer-use agent, run the connector, and verify the sync landed in the local DB. Use when iterating on Sage50Connector changes, when the connector reports "Authorization result = Pending" after a rebuild, or when asked to rebuild/redeploy/retest the Sage 50 connector.
+description: Run one end-to-end Sage 50 connector iteration - push, rebuild on the Windows VM, re-approve Sage access via a computer-use agent, run the connector, and verify the sync landed in the local DB. Also covers hand-inserting ID_FETCH/CREATE/UPDATE/DELETE desktop jobs, which nothing enqueues automatically. Use when iterating on Sage50Connector changes, when testing the vendor write path, when the connector reports "Authorization result = Pending" after a rebuild, or when asked to rebuild/redeploy/retest the Sage 50 connector.
 ---
 
 # Sage 50 connector: one iteration
@@ -102,7 +102,12 @@ To check what Sage currently has granted, without guessing:
 C:\Sage\Peachtree\Company\<company>\APIACCSS.DAT
 ```
 
-`scripts/grant-status.ps1` prints whether the current exe's hash is recorded. Delegate the GUI to a computer-use agent —
+`scripts/grant-status.ps1` prints whether the current exe's hash is recorded —
+though note that Sage writes an entry when access is *requested*, not only when
+it is granted, so a recorded hash is not proof of a grant. Only a run that
+fetches data proves it.
+
+When approval is needed, delegate the GUI to a computer-use agent —
 `codex:codex-rescue` via the `Agent` tool, or any agent that can drive the Mac's
 Remote Desktop app:
 
@@ -164,6 +169,70 @@ Read the failures, not just the totals:
   accepted but the next one never arrived.
 - Job `failed` with nothing persisted — check the backend log for a `ZodError`.
   `parameters.cursor` and `next_cursor` must be *omitted*, never `null`.
+
+## Testing the write jobs (ID_FETCH / CREATE / UPDATE / DELETE)
+
+Only `LIST_FETCH` is ever enqueued for you — the refresh strategy is the sole
+producer. Everything else has to be inserted by hand, so this is the recipe.
+
+All four are **vendors only**; any other entity is reported back as unsupported.
+
+```bash
+cd <rutter-backend>/.paperclip/worktrees/paperclip/RUT-29-re-setup-the-sage-50-integration
+DB=$(grep -E '^DATABASE_URL' .env | cut -d= -f2-)
+ITEM=<REDACTED_CONNECTION_ID>
+
+# clear anything in flight first, or a stale job wins the race
+psql "$DB" -c "delete from desktop_platform_jobs
+               where item_id='$ITEM' and status in ('enqueued','in_progress');"
+```
+
+**The body column is not shaped the same for CREATE and UPDATE.** Both live in
+`create_body`, but the connector unwraps them differently — `CREATE` reads
+`create_body.data`, while `UPDATE` receives `create_body` verbatim as
+`update_body`. Getting this wrong fails with a null-reference, not a clear error.
+
+```sql
+-- CREATE: fields nested under "data"
+insert into desktop_platform_jobs (item_id, status, platform_entity, type, create_body)
+values ('<item>', 'enqueued', 'VENDORS', 'CREATE',
+        '{"data":{"ID":"RUTTERTEST","Name":"Rutter Test Vendor","Email":"test@rutterapi.com"}}'::jsonb);
+
+-- ID_FETCH: id in parameters
+insert into desktop_platform_jobs (item_id, status, platform_entity, type, parameters)
+values ('<item>', 'enqueued', 'VENDORS', 'ID_FETCH', '{"platform_id":"RUTTERTEST"}'::jsonb);
+
+-- UPDATE: id in parameters, fields NOT nested
+insert into desktop_platform_jobs (item_id, status, platform_entity, type, parameters, create_body)
+values ('<item>', 'enqueued', 'VENDORS', 'UPDATE', '{"platform_id":"RUTTERTEST"}'::jsonb,
+        '{"Name":"Rutter Test Vendor RENAMED","Email":"renamed@rutterapi.com"}'::jsonb);
+
+-- DELETE: id in parameters
+insert into desktop_platform_jobs (item_id, status, platform_entity, type, parameters)
+values ('<item>', 'enqueued', 'VENDORS', 'DELETE', '{"platform_id":"RUTTERTEST"}'::jsonb);
+```
+
+Run one job at a time with `run.ps1`, then check both the job row and the data:
+
+```sql
+select type, status from desktop_platform_jobs where item_id='<item>'
+  order by updated_at desc limit 3;
+select platform_id, platform_data->>'name' from platform_entities
+  where item_id='<item>' and platform_id='RUTTERTEST';
+```
+
+Run them in the order above as a **lifecycle test**: it exercises all four and
+cleans up after itself, so nothing is left behind in the customer's books. Do
+this on a vendor you created — do not update or delete a real Bellwether vendor.
+
+Finish by re-running `ID_FETCH` after the `DELETE`. It should find nothing; that
+is what proves the delete reached Sage rather than only Rutter's copy. A
+`DELETE` that removes the `platform_entities` row while the vendor still exists
+in Sage looks identical in the job table.
+
+`UPDATE` only writes the fields you supply — a null means "not supplied", not
+"clear this" — so to test clearing behaviour you have to change the connector,
+not the payload.
 
 ## Troubleshooting
 
