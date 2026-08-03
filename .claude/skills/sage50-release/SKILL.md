@@ -1,6 +1,6 @@
 ---
 name: sage50-release
-description: Build, Authenticode-sign, package, and verify a customer-ready Sage 50 Connector EXE and MSI using the Windows VM over SSH and Rutter's Azure Artifact Signing account. Use when asked to create, cut, generate, sign, rebuild, or verify a Sage50Connector release or distributable installer.
+description: Build, Authenticode-sign, package, and verify a customer-ready Sage 50 Connector EXE and MSI using the Windows VM over SSH and Rutter's Azure Artifact Signing account. Use only when the user explicitly asks for a signed release, signed installer, customer distributable, or Artifact Signing. Do not use for ordinary development builds, rebuilds, testing, iteration, or validation.
 ---
 
 # Release the Sage 50 Connector
@@ -8,6 +8,14 @@ description: Build, Authenticode-sign, package, and verify a customer-ready Sage
 Produce one immutable signed EXE and MSI from the pushed tip of
 `rutter/productionize-v1`. Build and package on the Windows VM, but authenticate
 to Azure and sign on the Mac.
+
+## Invocation gate
+
+Run this workflow only after an explicit request for a **signed** release or
+customer distributable. A request to build, rebuild, test, iterate, deploy to
+the development VM, or produce an MSI is not authorization to sign. For those
+requests, use the unsigned development workflow in `$sage50-iterate` and stop
+after build/test verification.
 
 Read `CLAUDE.md` at the repository root before releasing. Treat its signing,
 Sage approval, and installer requirements as authoritative.
