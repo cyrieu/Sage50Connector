@@ -45,6 +45,16 @@ namespace Sage50Connector.Ui
             // lifetime of the app. Everything else marshals onto it, so nothing
             // ends up building a Form from a worker thread.
             statusForm = new StatusForm();
+            // A Form does not create its native handle until it is first shown.
+            // Returning users start hidden in the tray, so the show/quit listener
+            // threads could otherwise call BeginInvoke before a handle existed;
+            // that throws and leaves a hidden process impossible to stop cleanly.
+            // Force handle creation here on the UI thread before either listener
+            // starts.
+            if (statusForm.Handle == IntPtr.Zero)
+            {
+                throw new InvalidOperationException("Could not create the connector status window handle.");
+            }
             statusForm.SyncNowRequested += (s, e) => RequestSyncNow();
 
             // The sync loop owns a Sage session, so keep it off the UI thread.
