@@ -346,6 +346,54 @@ namespace Sage50Connector.Helpers
         }
 
         /// <summary>
+        /// Builds a line that has no quantity or item — Sage's retainage lines,
+        /// which carry only the base transaction-line fields plus a job.
+        /// </summary>
+        private static TBody MakeBaseLine<TBody>(
+            TransactionLine line,
+            string lineType,
+            EntityReference job,
+            ReferenceIndex index)
+            where TBody : TransactionLineBodyBase, new()
+        {
+            var body = new TBody
+            {
+                LineType = lineType,
+                JobGuid = ReferenceIndex.GuidOf(job),
+            };
+            MapLineBase(body, line, index);
+            return body;
+        }
+
+        /// <summary>
+        /// Builds a line-item line. The quantity, price and item reference are
+        /// passed in rather than read here because Sage declares them on each
+        /// concrete line type instead of on a shared interface, so there is
+        /// nothing generic to read them through.
+        /// </summary>
+        private static TBody MakeItemLine<TBody>(
+            TransactionLine line,
+            string lineType,
+            decimal quantity,
+            decimal unitPrice,
+            EntityReference inventoryItem,
+            EntityReference job,
+            ReferenceIndex index)
+            where TBody : ItemLineBodyBase, new()
+        {
+            var body = new TBody
+            {
+                LineType = lineType,
+                Quantity = quantity,
+                UnitPrice = unitPrice,
+                InventoryItemGuid = ReferenceIndex.GuidOf(inventoryItem),
+                JobGuid = ReferenceIndex.GuidOf(job),
+            };
+            MapLineBase(body, line, index);
+            return body;
+        }
+
+        /// <summary>
         /// General journal entries. The only entity here whose lines are the
         /// whole point — the header carries no party at all.
         /// </summary>
@@ -393,12 +441,8 @@ namespace Sage50Connector.Helpers
                         {
                             continue;
                         }
-                        var lineBody = new JournalEntryLineBody
-                        {
-                            JobGuid = ReferenceIndex.GuidOf(line.JobReference),
-                        };
-                        MapLineBase(lineBody, line, index);
-                        body.Lines.Add(lineBody);
+                        body.Lines.Add(MakeBaseLine<JournalEntryLineBody>(
+                            line, "journal", line.JobReference, index));
                     }
                 }
 
@@ -463,23 +507,52 @@ namespace Sage50Connector.Helpers
                 };
                 MapTransactionHeader(body, invoice, index);
 
+                // An invoice's lines live in whichever collection matches what it
+                // was raised from, so all four are read and merged. Reading only
+                // ApplyToSalesLines silently lost every line of the invoices
+                // raised from sales orders.
                 if (invoice.ApplyToSalesLines != null)
                 {
                     foreach (SalesInvoiceSalesLine line in invoice.ApplyToSalesLines)
                     {
-                        if (!IsRealLine(line))
-                        {
-                            continue;
-                        }
-                        var lineBody = new InvoiceLineBody
-                        {
-                            Quantity = line.Quantity,
-                            UnitPrice = line.UnitPrice,
-                            InventoryItemGuid = ReferenceIndex.GuidOf(line.InventoryItemReference),
-                            JobGuid = ReferenceIndex.GuidOf(line.JobReference),
-                        };
-                        MapLineBase(lineBody, line, index);
-                        body.Lines.Add(lineBody);
+                        if (!IsRealLine(line)) { continue; }
+                        body.Lines.Add(MakeItemLine<InvoiceLineBody>(
+                            line, "sales", line.Quantity, line.UnitPrice,
+                            line.InventoryItemReference, line.JobReference, index));
+                    }
+                }
+
+                if (invoice.ApplyToSalesOrderLines != null)
+                {
+                    foreach (SalesInvoiceSalesOrderLine line in invoice.ApplyToSalesOrderLines)
+                    {
+                        if (!IsRealLine(line)) { continue; }
+                        body.Lines.Add(MakeItemLine<InvoiceLineBody>(
+                            line, "salesOrder", line.Quantity, line.UnitPrice,
+                            line.InventoryItemReference, line.JobReference, index));
+                    }
+                }
+
+                if (invoice.ApplyToProposalLines != null)
+                {
+                    foreach (SalesInvoiceProposalLine line in invoice.ApplyToProposalLines)
+                    {
+                        if (!IsRealLine(line)) { continue; }
+                        body.Lines.Add(MakeItemLine<InvoiceLineBody>(
+                            line, "proposal", line.Quantity, line.UnitPrice,
+                            line.InventoryItemReference, line.JobReference, index));
+                    }
+                }
+
+                // Retainage is money withheld, not a sale, and Sage gives these
+                // lines no quantity, price or item at all.
+                if (invoice.WithholdRetainageLines != null)
+                {
+                    foreach (SalesInvoiceRetainageLine line in invoice.WithholdRetainageLines)
+                    {
+                        if (!IsRealLine(line)) { continue; }
+                        body.Lines.Add(MakeBaseLine<InvoiceLineBody>(
+                            line, "retainage", line.JobReference, index));
                     }
                 }
 
@@ -538,23 +611,38 @@ namespace Sage50Connector.Helpers
                 };
                 MapTransactionHeader(body, bill, index);
 
+                // Same split as invoices: a bill entered directly keeps its lines
+                // in ApplyToPurchasesLines, one raised from a purchase order in
+                // ApplyToOrderLines.
                 if (bill.ApplyToPurchasesLines != null)
                 {
                     foreach (PurchaseInvoicePurchasesLine line in bill.ApplyToPurchasesLines)
                     {
-                        if (!IsRealLine(line))
-                        {
-                            continue;
-                        }
-                        var lineBody = new BillLineBody
-                        {
-                            Quantity = line.Quantity,
-                            UnitPrice = line.UnitPrice,
-                            InventoryItemGuid = ReferenceIndex.GuidOf(line.InventoryItemReference),
-                            JobGuid = ReferenceIndex.GuidOf(line.JobReference),
-                        };
-                        MapLineBase(lineBody, line, index);
-                        body.Lines.Add(lineBody);
+                        if (!IsRealLine(line)) { continue; }
+                        body.Lines.Add(MakeItemLine<BillLineBody>(
+                            line, "purchases", line.Quantity, line.UnitPrice,
+                            line.InventoryItemReference, line.JobReference, index));
+                    }
+                }
+
+                if (bill.ApplyToOrderLines != null)
+                {
+                    foreach (PurchaseInvoiceOrderLine line in bill.ApplyToOrderLines)
+                    {
+                        if (!IsRealLine(line)) { continue; }
+                        body.Lines.Add(MakeItemLine<BillLineBody>(
+                            line, "purchaseOrder", line.Quantity, line.UnitPrice,
+                            line.InventoryItemReference, line.JobReference, index));
+                    }
+                }
+
+                if (bill.WithholdRetainageLines != null)
+                {
+                    foreach (PurchaseInvoiceRetainageLine line in bill.WithholdRetainageLines)
+                    {
+                        if (!IsRealLine(line)) { continue; }
+                        body.Lines.Add(MakeBaseLine<BillLineBody>(
+                            line, "retainage", line.JobReference, index));
                     }
                 }
 
@@ -618,19 +706,10 @@ namespace Sage50Connector.Helpers
                 {
                     foreach (PaymentExpenseLine line in payment.ApplyToExpenseLines)
                     {
-                        if (!IsRealLine(line))
-                        {
-                            continue;
-                        }
-                        var lineBody = new ExpenseLineBody
-                        {
-                            Quantity = line.Quantity,
-                            UnitPrice = line.UnitPrice,
-                            InventoryItemGuid = ReferenceIndex.GuidOf(line.InventoryItemReference),
-                            JobGuid = ReferenceIndex.GuidOf(line.JobReference),
-                        };
-                        MapLineBase(lineBody, line, index);
-                        body.ExpenseLines.Add(lineBody);
+                        if (!IsRealLine(line)) { continue; }
+                        body.ExpenseLines.Add(MakeItemLine<ExpenseLineBody>(
+                            line, "expense", line.Quantity, line.UnitPrice,
+                            line.InventoryItemReference, line.JobReference, index));
                         expenseLineCount++;
                     }
                 }
@@ -645,6 +724,7 @@ namespace Sage50Connector.Helpers
                         }
                         var lineBody = new PaymentAppliedInvoiceLineBody
                         {
+                            LineType = "appliedToBill",
                             AmountPaid = line.AmountPaid,
                             DiscountAmount = line.DiscountAmount,
                             DiscountAccountID = index.Resolve(line.DiscountAccountReference),
