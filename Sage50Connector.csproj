@@ -60,6 +60,7 @@
   <ItemGroup>
     <Compile Include="Helpers\CompanyManager.cs" />
     <Compile Include="Helpers\ConnectorConfig.cs" />
+    <Compile Include="Helpers\ReferenceIndex.cs" />
     <Compile Include="Helpers\RuntimeEnvironment.cs" />
     <Compile Include="Helpers\Sage50Connector.cs" />
     <Compile Include="Helpers\Sage50Repository.cs" />
@@ -68,6 +69,7 @@
     <Compile Include="Models\Rutter\ChartofVendor.cs" />
     <Compile Include="Models\Rutter\ChartofAccount.cs" />
     <Compile Include="Models\Rutter\CompanyInfo.cs" />
+    <Compile Include="Models\Rutter\Transactions.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Ui\StatusForm.cs">
       <SubType>Form</SubType>

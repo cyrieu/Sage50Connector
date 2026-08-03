@@ -853,6 +853,26 @@ namespace Sage50Connector
                         ? new List<object>()
                         : new List<object> { companyInfo };
                     break;
+                case "JOURNAL_ENTRIES":
+                    var journalEntries = Sage50Repository.Instance.GetJournalEntries(companyName, updatedAt);
+                    WriteToFile(DateTime.Now + $": Retrieved {journalEntries.Count} journal entries from Sage 50.");
+                    data = journalEntries.Cast<object>().ToList();
+                    break;
+                case "INVOICES":
+                    var invoices = Sage50Repository.Instance.GetInvoices(companyName, updatedAt);
+                    WriteToFile(DateTime.Now + $": Retrieved {invoices.Count} invoices from Sage 50.");
+                    data = invoices.Cast<object>().ToList();
+                    break;
+                case "BILLS":
+                    var bills = Sage50Repository.Instance.GetBills(companyName, updatedAt);
+                    WriteToFile(DateTime.Now + $": Retrieved {bills.Count} bills from Sage 50.");
+                    data = bills.Cast<object>().ToList();
+                    break;
+                case "EXPENSES":
+                    var expenses = Sage50Repository.Instance.GetExpenses(companyName, updatedAt);
+                    WriteToFile(DateTime.Now + $": Retrieved {expenses.Count} payments from Sage 50.");
+                    data = expenses.Cast<object>().ToList();
+                    break;
                 default:
                     throw new ArgumentException("Unknown platform entity: " + entity);
             }
