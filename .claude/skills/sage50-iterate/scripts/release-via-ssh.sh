@@ -19,6 +19,23 @@ for command in az jsign ssh scp; do
 done
 [ -f "$key" ] || { echo "SSH key not found: $key" >&2; exit 1; }
 
+[ -z "$(git -C "$repo_root" status --porcelain)" ] || {
+  echo 'working tree is not clean; commit or stash changes before releasing' >&2
+  exit 1
+}
+expected_head=$(git -C "$repo_root" rev-parse HEAD)
+expected_remote_head=$(git -C "$repo_root" rev-parse origin/rutter/productionize-v1)
+[ "$expected_head" = "$expected_remote_head" ] || {
+  echo 'HEAD does not match origin/rutter/productionize-v1; push the intended release first' >&2
+  exit 1
+}
+expected_short=$(git -C "$repo_root" rev-parse --short HEAD)
+release_dir="$repo_root/artifacts/sage50-release-$expected_short"
+[ ! -e "$release_dir" ] || {
+  echo "release already exists and will not be overwritten: $release_dir" >&2
+  exit 1
+}
+
 scp "${ssh_opts[@]}" "$script_dir/stop-for-release.ps1" \
   "$remote:C:/Users/<SAGE50_SSH_USER>/sage50-stop-for-release.ps1"
 ssh "${ssh_opts[@]}" "$remote" \
@@ -28,7 +45,10 @@ ssh "${ssh_opts[@]}" "$remote" \
 
 head=$(ssh "${ssh_opts[@]}" "$remote" \
   "powershell.exe -NoProfile -Command \"Set-Location C:\\src\\Sage50Connector; git rev-parse --short HEAD\"" | tr -d '\r')
-release_dir="$repo_root/artifacts/sage50-release-$head"
+[ "$head" = "$expected_short" ] || {
+  echo "VM built unexpected commit: expected $expected_short, got $head" >&2
+  exit 1
+}
 mkdir -p "$release_dir"
 
 exe="$release_dir/Sage50Connector.exe"
