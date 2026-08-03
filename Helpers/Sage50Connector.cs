@@ -22,20 +22,74 @@ namespace Sage50Connector.Helpers
             Sage.Peachtree.API.Resolver.AssemblyInitializer.Initialize();
         }
 
-        /// <summary>
-        /// 
-        /// </summary>
         public void Dispose()
         {
-            if (PeachtreeSession != null)
+            Shutdown();
+        }
+
+        /// <summary>
+        /// Release the Sage session and the open company.
+        ///
+        /// Sage licenses a limited number of concurrent connections and does not
+        /// reclaim ours when the process goes away, so failing to do this leaks a
+        /// seat until the Sage connect service restarts. Once enough leak, Sage
+        /// answers every request with "License is currently unavailable. You have
+        /// reached the maximum number of connections".
+        ///
+        /// Reads m_peachtreeSession directly rather than the PeachtreeSession
+        /// property on purpose: the property's getter creates *and begins* a
+        /// session on demand, so releasing through it would open the very
+        /// connection this is meant to give back.
+        ///
+        /// Safe to call repeatedly, and safe when nothing was ever opened.
+        /// </summary>
+        public void Shutdown()
+        {
+            PeachtreeSession session = m_peachtreeSession;
+            m_peachtreeSession = null;
+            Company company = CurrentCompany;
+            CurrentCompany = null;
+
+            if (session == null)
             {
-                PeachtreeSession.Close(CurrentCompany);
-                m_peachtreeSession = null;
+                return;
             }
+
+            try
+            {
+                if (company != null && !company.IsClosed && session.SessionActive)
+                {
+                    session.Close(company);
+                }
+            }
+            catch (Exception ex)
+            {
+                // Never let cleanup throw - it runs from process-exit paths.
+                global::Sage50Connector.Program.WriteToFile("Error closing Sage company: " + ex.Message);
+            }
+
+            try
+            {
+                session.End();
+            }
+            catch (Exception ex)
+            {
+                global::Sage50Connector.Program.WriteToFile("Error ending Sage session: " + ex.Message);
+            }
+
+            (session as IDisposable)?.Dispose();
         }
         #endregion
 
         #region properties/fields
+
+        /// <summary>
+        /// Sage-issued ApplicationIdentifier for this connector. An empty
+        /// identifier only allows access to Peachtree Sample companies; to
+        /// access real companies, the connector must present this token
+        /// (obtained from Sage; it is Rutter's license, not per-customer).
+        /// </summary>
+        private const string ApplicationIdentifier = "j6hHxkAHH31dLcZj3pr7KkJ97ZHBVp3A+yzPcdoPk0dWuW+npaRCig==qkaYdrdCJQAbSJSUCKFY3gdJByefMBYnYWKkyQP+QgvJKev4vbTCsMyaQM3SIy/g8coNs7zcZA8fzCqEbmclgtNp4AefrnrE+fOkJ+EPGJFgSwzZ019vNkKU79dMEWLQPSSm8KpqAspRKJrtxzoRfCW/KB2MlfgTe7i2vskOFM0wpA8RSXgXvBi/gOpnFX0o3ECrO0fEVN681li4DaIeITl3mjdMZazERXvWpibPxwM=";
 
         public Company CurrentCompany { get; set; }
 
@@ -52,7 +106,7 @@ namespace Sage50Connector.Helpers
                     // Note: an empty ApplicationIdentifier will only allow access to Peachtree Sample companies.
                     // To access other companies, you must contact Sage to obtain a valid ApplicationIdentifier
                     //m_peachtreeSession.Begin(string.Empty);
-                    m_peachtreeSession.Begin("j6hHxkAHH31dLcZj3pr7KkJ97ZHBVp3A+yzPcdoPk0dWuW+npaRCig==qkaYdrdCJQAbSJSUCKFY3gdJByefMBYnYWKkyQP+QgvJKev4vbTCsMyaQM3SIy/g8coNs7zcZA8fzCqEbmclgtNp4AefrnrE+fOkJ+EPGJFgSwzZ019vNkKU79dMEWLQPSSm8KpqAspRKJrtxzoRfCW/KB2MlfgTe7i2vskOFM0wpA8RSXgXvBi/gOpnFX0o3ECrO0fEVN681li4DaIeITl3mjdMZazERXvWpibPxwM=");
+                    m_peachtreeSession.Begin(ApplicationIdentifier);
                 }
                 return m_peachtreeSession;
             }
@@ -91,6 +145,17 @@ namespace Sage50Connector.Helpers
         /// <param name="e"></param>
         internal string RequestAccess(CompanyIdentifier companyId)
         {
+            return "Authorization result = " + RequestAccessResult(companyId).ToString();
+        }
+
+        /// <summary>
+        /// Ask Sage whether this exact executable is approved for the company.
+        /// Sage keys the decision to the executable's MD5, so this is also the
+        /// reliable current-version check. RequestAccess both reads an existing
+        /// decision and registers a request when this build has never been seen.
+        /// </summary>
+        internal AuthorizationResult RequestAccessResult(CompanyIdentifier companyId)
+        {
             Sage.Peachtree.API.AuthorizationResult authorizationResult = AuthorizationResult.None;
 
             try
@@ -104,7 +169,7 @@ namespace Sage50Connector.Helpers
                 // We will use the same string both for the description and the object.
                 Dictionary<string, object> auth = new Dictionary<string, object>();
                 auth[AuthenticationCredentialKey.SUPPLEMENTAL_DESCRIPTION] = Properties.Resources.ADDIN_TITLE;
-                auth[AuthenticationCredentialKey.SUPPLEMENTAL_OBJECT] = "j6hHxkAHH31dLcZj3pr7KkJ97ZHBVp3A+yzPcdoPk0dWuW+npaRCig==qkaYdrdCJQAbSJSUCKFY3gdJByefMBYnYWKkyQP+QgvJKev4vbTCsMyaQM3SIy/g8coNs7zcZA8fzCqEbmclgtNp4AefrnrE+fOkJ+EPGJFgSwzZ019vNkKU79dMEWLQPSSm8KpqAspRKJrtxzoRfCW/KB2MlfgTe7i2vskOFM0wpA8RSXgXvBi/gOpnFX0o3ECrO0fEVN681li4DaIeITl3mjdMZazERXvWpibPxwM=";
+                auth[AuthenticationCredentialKey.SUPPLEMENTAL_OBJECT] = ApplicationIdentifier;
 
                 // Request access to the company; if it is the first time, the return result will be
                 // "Pending". The Peachtree Administrator must then open the company in Peachtree and
@@ -112,39 +177,7 @@ namespace Sage50Connector.Helpers
                 // the result should be "Granted" and we can continue to open the company.
                 authorizationResult = PeachtreeSession.RequestAccess(companyId, auth);
                 
-                return "Authorization result = " + authorizationResult.ToString();
-            }
-            catch (System.Exception ex)
-            {
-                StringBuilder message = new StringBuilder();
-                message.Append(string.Format("ERROR!!! {0} {1}{2}", ex.GetType(), ex.Message, Environment.NewLine));
-                if (ex.InnerException != null)
-                {
-                    message.Append(string.Format("{0}", Environment.NewLine + ex.InnerException.Message));
-                }
-
-                if (ex is AuthorizationException)
-                {
-                    AuthorizationException aEx = (ex as AuthorizationException);
-                }
-
-                throw ex;
-            }
-        }
-
-        /// <summary>
-        /// Verify Company Access
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        internal string VerifyCompAccess(CompanyIdentifier companyId)
-        {
-            Sage.Peachtree.API.AuthorizationResult authorizationResult = AuthorizationResult.None;
-
-            try
-            {
-                authorizationResult = m_peachtreeSession.VerifyAccess(companyId);
-                return "Authorization result = " + authorizationResult.ToString();
+                return authorizationResult;
             }
             catch (System.Exception ex)
             {
@@ -185,7 +218,7 @@ namespace Sage50Connector.Helpers
                     // We will use the same string both for the description and the object.
                     Dictionary<string, object> auth = new Dictionary<string, object>();
                     auth[AuthenticationCredentialKey.SUPPLEMENTAL_DESCRIPTION] = Properties.Resources.ADDIN_TITLE;
-                    auth[AuthenticationCredentialKey.SUPPLEMENTAL_OBJECT] = "j6hHxkAHH31dLcZj3pr7KkJ97ZHBVp3A+yzPcdoPk0dWuW+npaRCig==qkaYdrdCJQAbSJSUCKFY3gdJByefMBYnYWKkyQP+QgvJKev4vbTCsMyaQM3SIy/g8coNs7zcZA8fzCqEbmclgtNp4AefrnrE+fOkJ+EPGJFgSwzZ019vNkKU79dMEWLQPSSm8KpqAspRKJrtxzoRfCW/KB2MlfgTe7i2vskOFM0wpA8RSXgXvBi/gOpnFX0o3ECrO0fEVN681li4DaIeITl3mjdMZazERXvWpibPxwM=";
+                    auth[AuthenticationCredentialKey.SUPPLEMENTAL_OBJECT] = ApplicationIdentifier;
 
                     // Request access to the company; if it is the first time, the return result will be
                     // "Pending". The Peachtree Administrator must then open the company in Peachtree and
@@ -235,9 +268,14 @@ namespace Sage50Connector.Helpers
         /// 
         public void CloseCompany()
         {
-            if (PeachtreeSession.SessionActive && CurrentCompany != null && !CurrentCompany.IsClosed)
+            // m_peachtreeSession, not the property: the getter would begin a new
+            // session just to close a company that by definition is not open in it.
+            if (m_peachtreeSession != null
+                && m_peachtreeSession.SessionActive
+                && CurrentCompany != null
+                && !CurrentCompany.IsClosed)
             {
-                PeachtreeSession.Close(CurrentCompany);
+                m_peachtreeSession.Close(CurrentCompany);
                 CurrentCompany = null;
             }
         }

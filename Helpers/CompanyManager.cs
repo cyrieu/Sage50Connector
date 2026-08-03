@@ -75,16 +75,6 @@ namespace Sage50Connector.Helpers
             return this.OpenCompany(this.Companies[index]);
         }
 
-        public string VerifyCompanyAccess(CompanyIdentifier comp)
-        {
-            return Sage50Connector.Instance.RequestAccess(comp);
-        }
-
-        public string VerifySelectedCompanyAccess(int index)
-        {
-            return this.VerifyCompanyAccess(this.Companies[index]);
-        }
-
         public void CloseCompany()
         {
             Sage50Connector.Instance.CloseCompany();

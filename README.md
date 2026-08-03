@@ -1,0 +1,110 @@
+# Rutter Sage 50 Connector
+
+The Sage 50 (US / Peachtree) desktop connector for Rutter. Sage 50 has no
+cloud API, so this Windows application runs on the machine where Sage 50 is
+installed and relays data between the local Sage 50 SDK
+(`Sage.Peachtree.API`, x86) and the Rutter backend over HTTPS.
+
+It is a reverse-poll client: the tray application polls
+`POST {ApiBaseUrl}/versioned/ingest` (default
+`https://production.rutterapi.com`), picks up queued jobs (LIST_FETCH /
+CREATE), runs them against the open Sage 50 company, and posts results back.
+
+## Projects
+
+| Project | Output | Purpose |
+|---|---|---|
+| `Sage50Connector` | `Sage50Connector.exe` | Interactive tray connector and provisioning tool (`--setup`). |
+| `Sage50ConnectorSetupCustomActions` | DLL | MSI custom action that writes `sage50Config.json` at install time. |
+| `Sage50ConnectorSetup` (WiX) | `RutterSage50ConnectorSetup.msi` | Installer. |
+
+## Prerequisites (build machine)
+
+- Windows with .NET Framework 4.8 developer pack + Visual Studio 2019/2022 (Build Tools is enough).
+- [WiX Toolset v3.11](https://github.com/wixtoolset/wix3/releases/) build tools + WiX Visual Studio extension (to load `Sage50ConnectorSetup.wixproj`).
+- The Sage 50 SDK assemblies at `C:\Program Files (x86)\Sage\Peachtree\API\` (a Sage 50 install puts them there). The build references them via `HintPath`.
+
+Build the solution in **Release**: `msbuild Sage50Connector.sln /p:Configuration=Release`.
+The MSI lands at `Sage50ConnectorSetup\bin\Release\RutterSage50ConnectorSetup.msi`.
+
+## Installing on a customer machine
+
+Machine requirements: Windows, Sage 50 (US Edition) installed and licensed,
+the target company file openable in the Sage 50 UI, .NET Framework 4.8.
+
+1. Run `RutterSage50ConnectorSetup.msi` (elevated).
+2. On the **Sage 50 connection details** screen, fill in:
+   - **Company name** — the Sage 50 company name exactly as it appears in Sage
+     50 (e.g. `Bellwether Garden Supply`). Must match the company the
+     connector will open.
+   - **Access key** — the connection's inbound access token (`iat_...`).
+   - **Connection ID** — the Rutter connection (item) id (a UUID).
+
+   All three fields are optional: leave them blank and provision afterwards
+   with `--setup` (below) instead.
+3. The installer writes
+   `%ProgramData%\Rutter\Sage50Connector\sage50Config.json` and registers the
+   tray connector to start whenever a user logs on. Launch it from the Start
+   menu if you want to run it immediately.
+4. On the first run, Sage 50 desktop shows an **"Always Allow Access"**
+   approval dialog for the connector (`Rutter Sage 50 Connector`). A Sage 50
+   administrator must approve it once, otherwise the connector only sees the
+   sample company.
+
+### Re-provisioning without the MSI prompts
+
+From an elevated command prompt in the install directory:
+
+```
+Sage50Connector.exe --setup "<CompanyName>" <OrgId> [ApiBaseUrl]
+```
+
+- `CompanyName` — the Sage 50 company name.
+- `OrgId` — the Rutter organization the connection belongs to.
+- `ApiBaseUrl` — optional; defaults to `https://production.rutterapi.com`.
+
+This calls `POST {ApiBaseUrl}/sage-50/save-id`, which creates/reuses the
+Rutter connection and returns the access key + connection id. The tool writes
+`sage50Config.json` itself — no hand-edited JSON.
+
+## Configuration
+
+The connector reads exactly one config file:
+`%ProgramData%\Rutter\Sage50Connector\sage50Config.json`
+
+```json
+{
+  "CompanyName": "<Sage 50 company name>",
+  "AccessKey": "<inbound access token, iat_...>",
+  "ConnectionId": "<Rutter connection/item id>",
+  "ApiBaseUrl": "https://production.rutterapi.com"  // optional
+}
+```
+
+The legacy location `C:\Users\Default\Documents\sage50Config.json` is still
+read as a fallback so existing installs keep working.
+
+## Logs
+
+`%ProgramData%\Rutter\Sage50Connector\log.txt` — each poll logs the fetched
+job, the company it opened, and the post result. Check here first when the
+connection isn't syncing.
+
+## Uninstall
+
+Standard MSI uninstall removes the connector and its login-start registration.
+Exit the tray application before uninstalling. `sage50Config.json` and
+`log.txt` are left behind in `%ProgramData%\Rutter\Sage50Connector\` so a
+reinstall picks the connection up again; delete that directory for a completely
+clean removal.
+
+## Known limitations / follow-ups
+
+- Ordinary development builds are unsigned. Produce a signed release on demand
+  before customer distribution.
+- `--setup` creates a **new** connection per (org, company) pair. Re-running
+  it for an existing company is rejected by the backend with a "duplicate"
+  response; point at an existing connection by installing with the MSI
+  prompts or by writing `sage50Config.json` directly.
+- The build references the Sage SDK from a machine-local path; keep the
+  Sage 50 SDK installed on the build machine.
