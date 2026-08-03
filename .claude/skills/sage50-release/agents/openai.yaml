@@ -1,0 +1,4 @@
+interface:
+  display_name: "Release Sage 50 Connector"
+  short_description: "Build and sign a Sage 50 release"
+  default_prompt: "Use $sage50-release to create and verify a signed Sage 50 Connector release."

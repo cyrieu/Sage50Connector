@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*"
+           Name="Rutter Sage 50 Connector"
+           Language="1033"
+           Version="1.0.0.0"
+           Manufacturer="Rutter"
+           UpgradeCode="{D7F3C026-081A-4C0A-9F17-AA4EAEE4A9B7}">
+    <Package InstallerVersion="200" Compressed="yes" InstallScope="perMachine" Platform="x86" />
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed. If you have a newer version installed you can uninstall it, or provision this machine with 'Sage50Connector.exe --setup' instead." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="Sage50Icon.ico" SourceFile="$(var.Sage50Connector.ProjectDir)Sage_50cloud_logo.ico" />
+    <Property Id="ARPPRODUCTICON" Value="Sage50Icon.ico" />
+
+    <Feature Id="ProductFeature" Title="Rutter Sage 50 Connector" Level="1">
+      <ComponentGroupRef Id="ProductComponents" />
+      <ComponentGroupRef Id="ShortcutComponents" />
+    </Feature>
+
+    <!-- Installer UI: standard install-dir flow + the Sage connection-details dialog (ConfigDlg.wxs) -->
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+    <WixVariable Id="WixUILicenseRtf"
+                 Value="$(var.ProjectDir)PrivacyPolicy.rtf" />
+    <UIRef Id="WixUI_InstallDir" />
+    <UIRef Id="WixUI_ErrorProgressText" />
+
+    <!-- Deferred custom action that writes sage50Config.json from COMPANYNAME/ACCESSKEY/CONNECTIONID -->
+    <Binary Id="WriteSageConfigJsonCA"
+            SourceFile="$(var.Sage50ConnectorSetupCustomActions.TargetDir)$(var.Sage50ConnectorSetupCustomActions.TargetName).CA.dll" />
+    <CustomAction Id="SetWriteSageConfigJson"
+                  Property="WriteSageConfigJson"
+                  Value="CompanyName=[COMPANYNAME];AccessKey=[ACCESSKEY];ConnectionId=[CONNECTIONID]"
+                  Execute="immediate" />
+    <CustomAction Id="WriteSageConfigJson"
+                  BinaryKey="WriteSageConfigJsonCA"
+                  DllEntry="WriteSageConfigJson"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="check" />
+    <InstallExecuteSequence>
+      <Custom Action="SetWriteSageConfigJson" After="InstallFiles">NOT Installed AND NOT REMOVE</Custom>
+      <Custom Action="WriteSageConfigJson" After="SetWriteSageConfigJson">NOT Installed AND NOT REMOVE</Custom>
+    </InstallExecuteSequence>
+  </Product>
+
+  <Fragment>
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFilesFolder">
+        <Directory Id="INSTALLFOLDER" Name="Rutter Sage 50 Connector" />
+      </Directory>
+      <Directory Id="ProgramMenuFolder">
+        <Directory Id="APPLICATIONPROGRAMMENUDIR" Name="Rutter Sage 50 Connector" />
+      </Directory>
+    </Directory>
+  </Fragment>
+
+  <Fragment>
+    <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
+      <!-- The connector and its runtime dependencies come from the connector project output. -->
+      <Component Id="Sage50ConnectorExe" Guid="{EC37D31E-8776-4583-8FDA-DAFCA5A739C4}">
+        <File Id="Sage50Connector.exe"
+              Source="$(var.Sage50Connector.TargetDir)Sage50Connector.exe"
+              KeyPath="yes" />
+      </Component>
+      <!--
+        Start the tray app when a user logs on. This is deliberately how the
+        connector runs rather than as a Windows service: Sage records third-party
+        access per Windows user, so running in the logged-on user's session means
+        the connector is automatically the identity that approved it. A service
+        had to be given that user's credentials to achieve the same thing.
+
+        The trade-off is that syncing only happens while someone is logged in.
+      -->
+      <Component Id="Sage50ConnectorAutostart" Guid="{9E1D7C4A-3B62-4F0E-9C21-7D5A1E8B4C33}">
+        <RegistryValue Root="HKLM"
+                       Key="Software\Microsoft\Windows\CurrentVersion\Run"
+                       Name="RutterSage50Connector"
+                       Type="string"
+                       Value="&quot;[INSTALLFOLDER]Sage50Connector.exe&quot;"
+                       KeyPath="yes" />
+        <RegistryValue Root="HKLM"
+                       Key="Software\Rutter\Sage50Connector"
+                       Name="InstallPath"
+                       Type="string"
+                       Value="[INSTALLFOLDER]" />
+      </Component>
+      <Component Id="NewtonsoftJson" Guid="{1F2DA1C6-B49D-4255-9915-5C4235633D57}">
+        <File Id="Newtonsoft.Json.dll" Source="$(var.Sage50Connector.TargetDir)Newtonsoft.Json.dll" KeyPath="yes" />
+      </Component>
+      <Component Id="SagePeachtreeApi" Guid="{68D97B2B-D0F0-4D71-8334-BFD532CF5F32}">
+        <File Id="Sage.Peachtree.API.dll" Source="$(var.Sage50Connector.TargetDir)Sage.Peachtree.API.dll" KeyPath="yes" />
+      </Component>
+      <Component Id="SagePeachtreeApiResolver" Guid="{22F64079-896B-4789-98FC-01FDC6D48173}">
+        <File Id="Sage.Peachtree.API.Resolver.dll" Source="$(var.Sage50Connector.TargetDir)Sage.Peachtree.API.Resolver.dll" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <!--
+      Somewhere to click. The tray icon lands in Windows' overflow chevron by
+      default, so without this a customer has no obvious way to open the app.
+      Launching the exe while it is already running surfaces the existing
+      window rather than starting a second copy.
+
+      This component belongs to the Start Menu directory, so it must not live in
+      ProductComponents, whose inherited directory is INSTALLFOLDER.
+    -->
+    <ComponentGroup Id="ShortcutComponents" Directory="APPLICATIONPROGRAMMENUDIR">
+      <Component Id="Sage50ConnectorShortcut" Guid="{6C0B9F31-52A4-4D8E-B7A1-3F9C2E4D8A17}">
+        <Shortcut Id="Sage50ConnectorStartMenuShortcut"
+                  Name="Rutter Sage 50 Connector"
+                  Description="View Sage 50 sync status"
+                  Target="[INSTALLFOLDER]Sage50Connector.exe"
+                  WorkingDirectory="INSTALLFOLDER" />
+        <RemoveFolder Id="RemoveApplicationProgramMenuDir" On="uninstall" />
+        <RegistryValue Root="HKCU"
+                       Key="Software\Rutter\Sage50Connector"
+                       Name="shortcut"
+                       Type="integer"
+                       Value="1"
+                       KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+</Wix>
