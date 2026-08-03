@@ -411,6 +411,7 @@ namespace Sage50Connector
         /// retried as fast as the network allows.
         /// </summary>
         private static readonly TimeSpan PollDelay = TimeSpan.FromSeconds(2);
+        private static readonly TimeSpan AuthorizationRetryDelay = TimeSpan.FromMinutes(5);
 
         /// <summary>
         /// How many consecutive failed polls to ride out before giving up. A single
@@ -424,6 +425,8 @@ namespace Sage50Connector
 
         static async Task MainAsync(string AccessKey, string CompanyName, string ConnectionId)
         {
+            await WaitForSageAuthorizationAsync(CompanyName);
+
             bool firstIteration = true;
             int consecutivePollFailures = 0;
             while (true)
@@ -522,6 +525,65 @@ namespace Sage50Connector
                 }
                 WriteToFile(DateTime.Now + ": Process Ended.");
                 WriteToFile("###################################################################################################################");
+            }
+        }
+
+        /// <summary>
+        /// Prove that Sage granted this exact executable access before accepting
+        /// work from Rutter. APIACCSS.DAT contains requested and granted hashes,
+        /// so reading that file cannot distinguish approval; RequestAccess can.
+        ///
+        /// A new build registers as Pending here without consuming and failing a
+        /// queued job. The Sage session is released after every probe so a denied
+        /// build cannot cache stale authorization or occupy a licence seat.
+        /// </summary>
+        private static async Task WaitForSageAuthorizationAsync(string companyName)
+        {
+            while (true)
+            {
+                Helpers.SyncStatus.Instance.SetCheckingAuthorization();
+                try
+                {
+                    CompanyIdentifier company = Helpers.CompanyManager.Instance.Companies
+                        .FirstOrDefault(c => string.Equals(
+                            c.CompanyName,
+                            companyName,
+                            StringComparison.Ordinal));
+
+                    if (company == null)
+                    {
+                        throw new InvalidOperationException(
+                            "There are no Sage 50 companies named '" + companyName + "'.");
+                    }
+
+                    AuthorizationResult result = Helpers.Sage50Connector.Instance.RequestAccessResult(company);
+                    WriteToFile(
+                        DateTime.Now
+                            + ": Sage authorization check for current executable and company '"
+                            + companyName
+                            + "': "
+                            + result);
+
+                    if (result == AuthorizationResult.Granted)
+                    {
+                        Helpers.SyncStatus.Instance.SetAuthorizationGranted();
+                        return;
+                    }
+
+                    Helpers.SyncStatus.Instance.SetNeedsAuthorization();
+                }
+                catch (Exception ex)
+                {
+                    WriteToFile(DateTime.Now + ": Sage authorization check failed: " + ex.Message);
+                    Helpers.SyncStatus.Instance.SetAuthorizationCheckFailed(
+                        "Could not check Sage 50 approval: " + ex.Message);
+                }
+                finally
+                {
+                    Helpers.Sage50Connector.Instance.Shutdown();
+                }
+
+                await DelayInterruptible(AuthorizationRetryDelay);
             }
         }
 

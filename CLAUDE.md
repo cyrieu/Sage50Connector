@@ -150,6 +150,14 @@ connector surfaces as
 4. Choose **Always Allow Access**.
 5. Run the connector again.
 
+The tray app probes Sage access for the configured company before it polls
+Rutter. It shows **Approved for this version** only when Sage returns `Granted`
+for the currently running executable. A changed build shows **Approval required
+for this version**, registers the request without consuming queued Rutter jobs,
+and changes **Sync now** to **Check access**. After approving in Sage, click
+**Check access** to retry immediately; otherwise it retries every five minutes.
+The probe releases its Sage session after every attempt.
+
 The prompt appears **only when the company is opened**. If the company is
 already open, nothing happens no matter how many times the connector asks — this
 is the single most common way to lose an hour here.
