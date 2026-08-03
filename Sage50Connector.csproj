@@ -67,6 +67,7 @@
     <Compile Include="Models\Rutter\ChartofCustomer.cs" />
     <Compile Include="Models\Rutter\ChartofVendor.cs" />
     <Compile Include="Models\Rutter\ChartofAccount.cs" />
+    <Compile Include="Models\Rutter\CompanyInfo.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Ui\StatusForm.cs">
       <SubType>Form</SubType>

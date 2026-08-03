@@ -844,6 +844,15 @@ namespace Sage50Connector
                     WriteToFile(DateTime.Now + $": Retrieved {customers.Count} customers from Sage 50.");
                     data = customers.Cast<object>().ToList();
                     break;
+                case "COMPANY_INFO":
+                    // One record, no timestamp to filter on, so updated_at is not
+                    // consulted: this always answers with the company as it is now
+                    // and Rutter dedupes on $.id.
+                    var companyInfo = Sage50Repository.Instance.GetCompanyInfo(companyName);
+                    data = companyInfo == null
+                        ? new List<object>()
+                        : new List<object> { companyInfo };
+                    break;
                 default:
                     throw new ArgumentException("Unknown platform entity: " + entity);
             }

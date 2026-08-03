@@ -16,6 +16,42 @@ this file; this one covers the Windows and Sage half.
 - The SDK is installed on the VM at `C:\Program Files (x86)\Sage\Peachtree\API`, including `Sage.Peachtree.API.dll`.
 - Build the `Sage50Connector.sln` solution as **x86** and target .NET Framework 4.8. `Any CPU` is not appropriate for the Sage SDK.
 
+## SDK reference on the VM, and how to read it off-machine
+
+The SDK ships its own docs, installed separately from the runtime DLLs. The
+runtime folder (`C:\Program Files (x86)\Sage\Peachtree\API`) holds only
+`Sage.Peachtree.API.dll` and its resolver. The documentation is in
+`C:\Program Files (x86)\Sage\Sage 50 2026.0 SDK`:
+
+| File | What it is |
+|---|---|
+| `Sage.Peachtree.API.XML` | 1.1 MB of XML doc comments, ~3,500 members. **Machine-readable — start here.** |
+| `SagePeachtreeAPIDocumentation.chm` | Full API reference, 2,744 topics / 352 classes |
+| `Sage50DotNETSDK.chm` | Conceptual guide, release-by-release breaking changes, `IssuesLimitations.html` |
+| `SDK poster.pdf` | Object-model poster |
+
+Sample code (`Basic SDK App`, `Lists Example`, `Payments`, `Receipts`,
+`WinFormExamples`, plus a COM set) is under
+`C:\Users\<SAGE50_SSH_USER>\Documents\Sage 50 2026.0 SDK\.NET Samples\Sample Code`.
+
+SSH works and is the quickest way to get at all of it — the same credentials
+`release-via-ssh.sh` uses:
+
+```bash
+ssh -i ~/.ssh/<ssh-key-name> <SAGE50_SSH_USER>@<SAGE50_VM_HOST> 'powershell.exe -NoProfile -Command "..."'
+scp -i ~/.ssh/<ssh-key-name> "<SAGE50_SSH_USER>@<SAGE50_VM_HOST>:C:/Program Files (x86)/Sage/Sage 50 2026.0 SDK/Sage.Peachtree.API.XML" .
+```
+
+Both CHMs extract on macOS with `7z x file.chm -oout`; the reference topics are
+GUID-named HTML, so build a title index before searching. Do not commit any of it
+— it is Sage's licensed documentation.
+
+Reflecting on the DLL also works, and settles questions the docs leave vague, but
+it must run under **32-bit** PowerShell: the assembly is x86, so 64-bit
+`Assembly.LoadFrom` fails with "an attempt was made to load a program with an
+incorrect format". Write the real script to disk and re-run it with
+`$env:WINDIR\SysWOW64\WindowsPowerShell\v1.0\powershell.exe`.
+
 ## Build and run on the VM
 
 Build remotely from macOS with the Visual Studio Build Tools installed on the
@@ -376,7 +412,7 @@ The connector polls `POST {ApiBaseUrl}/versioned/ingest` with
 `X-Rutter-Version: 2024-04-30` and `Authorization: Bearer <iat_…>`, body
 `{"connection":{"id":"<itemId>"}}`. Rutter replies with the next job:
 
-- `LIST_FETCH` — Accounts, Vendors, Customers
+- `LIST_FETCH` — Accounts, Vendors, Customers, Company Info
 - `ID_FETCH` — one Vendor by `parameters.platform_id`
 - `CREATE` — Vendors
 - `UPDATE` — one Vendor; fields to apply come from the job's `create_body`
@@ -398,6 +434,22 @@ the delete reached Sage and not just Rutter's copy.
 
 Only vendors are wired for the single-record jobs. Any other entity is reported
 as unsupported rather than silently ignored.
+
+`COMPANY_INFO` is a `LIST_FETCH` like the rest, answered with a single record and
+therefore always one page. Sage has no factory and no list for the company — the
+fields hang off the open `Company` object, so "fetching" it is opening the
+company. Sage also records no timestamp against it, so the job's `updated_at` is
+ignored and every sync re-sends the row for Rutter to upsert onto itself. `$.id`
+is the Sage company **GUID**, not the name, because the name is what customers
+rename. The record also carries the outer accounting-period range
+(`fiscalYearStart`/`fiscalYearEnd`), which is the only way to know what date range
+a transaction fetch can usefully ask for.
+
+**How initial and incremental sync actually behave here — and the four ways the
+current design is wrong about it — is in [docs/sync-model.md](docs/sync-model.md).**
+Read it before adding transaction entities: the paging strategy that works for 156
+accounts is quadratic, and Rutter currently treats "job enqueued" as "refresh
+complete".
 
 `UPDATE` applies only the fields present in the body: a null means "not
 supplied", not "clear this", so a partial update cannot blank a vendor's email.
