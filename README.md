@@ -5,7 +5,7 @@ cloud API, so this Windows application runs on the machine where Sage 50 is
 installed and relays data between the local Sage 50 SDK
 (`Sage.Peachtree.API`, x86) and the Rutter backend over HTTPS.
 
-It is a reverse-poll client: the Windows service polls
+It is a reverse-poll client: the tray application polls
 `POST {ApiBaseUrl}/versioned/ingest` (default
 `https://production.rutterapi.com`), picks up queued jobs (LIST_FETCH /
 CREATE), runs them against the open Sage 50 company, and posts results back.
@@ -14,8 +14,7 @@ CREATE), runs them against the open Sage 50 company, and posts results back.
 
 | Project | Output | Purpose |
 |---|---|---|
-| `Sage50Connector` | `Sage50Connector.exe` | Core connector. Runs jobs when invoked; also the provisioning tool (`--setup`). |
-| `Sage50ConnectorService` | `Sage50ConnectorService.exe` | Windows service; runs `Sage50Connector.exe` logic on a 1-minute timer. |
+| `Sage50Connector` | `Sage50Connector.exe` | Interactive tray connector and provisioning tool (`--setup`). |
 | `Sage50ConnectorSetupCustomActions` | DLL | MSI custom action that writes `sage50Config.json` at install time. |
 | `Sage50ConnectorSetup` (WiX) | `RutterSage50ConnectorSetup.msi` | Installer. |
 
@@ -44,8 +43,9 @@ the target company file openable in the Sage 50 UI, .NET Framework 4.8.
    All three fields are optional: leave them blank and provision afterwards
    with `--setup` (below) instead.
 3. The installer writes
-   `%ProgramData%\Rutter\Sage50Connector\sage50Config.json` and installs +
-   starts the `Sage50ConnectorService` Windows service (auto-start).
+   `%ProgramData%\Rutter\Sage50Connector\sage50Config.json` and registers the
+   tray connector to start whenever a user logs on. Launch it from the Start
+   menu if you want to run it immediately.
 4. On the first run, Sage 50 desktop shows an **"Always Allow Access"**
    approval dialog for the connector (`Rutter Sage 50 Connector`). A Sage 50
    administrator must approve it once, otherwise the connector only sees the
@@ -92,15 +92,16 @@ connection isn't syncing.
 
 ## Uninstall
 
-Standard MSI uninstall stops and removes the service. `sage50Config.json`
-and `log.txt` are left behind in `%ProgramData%\Rutter\Sage50Connector\` so a
-reinstall picks the connection up again; delete that directory for a
-completely clean removal.
+Standard MSI uninstall removes the connector and its login-start registration.
+Exit the tray application before uninstalling. `sage50Config.json` and
+`log.txt` are left behind in `%ProgramData%\Rutter\Sage50Connector\` so a
+reinstall picks the connection up again; delete that directory for a completely
+clean removal.
 
 ## Known limitations / follow-ups
 
-- The MSI is **unsigned** — SmartScreen will warn. Sign it (Authenticode)
-  before broad distribution.
+- Ordinary development builds are unsigned. Produce a signed release on demand
+  before customer distribution.
 - `--setup` creates a **new** connection per (org, company) pair. Re-running
   it for an existing company is rejected by the backend with a "duplicate"
   response; point at an existing connection by installing with the MSI

@@ -36,14 +36,6 @@
       <RefProjectOutputGroups>Binaries;Content;Satellites</RefProjectOutputGroups>
       <RefTargetDir>INSTALLFOLDER</RefTargetDir>
     </ProjectReference>
-    <ProjectReference Include="..\Sage50ConnectorService\Sage50ConnectorService.csproj">
-      <Name>Sage50ConnectorService</Name>
-      <Project>{E90176AB-CFD0-423E-8720-2D512C0B3C36}</Project>
-      <Private>True</Private>
-      <DoNotHarvest>True</DoNotHarvest>
-      <RefProjectOutputGroups>Binaries;Content;Satellites</RefProjectOutputGroups>
-      <RefTargetDir>INSTALLFOLDER</RefTargetDir>
-    </ProjectReference>
     <ProjectReference Include="..\Sage50ConnectorSetupCustomActions\Sage50ConnectorSetupCustomActions.csproj">
       <Name>Sage50ConnectorSetupCustomActions</Name>
       <Project>{FAAF6BD0-6308-4E4A-B9ED-192B3AE5BD49}</Project>

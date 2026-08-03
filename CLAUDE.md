@@ -71,10 +71,9 @@ customer-facing name and log `RuntimeMode=Installed`. The process name remains
 
 Sage 50 does **not** need to be open — see "Sage 50 does not need to be running".
 
-The one-shot executable polls for jobs and exits after
-`MaxConsecutivePollFailures` failed polls. `Sage50ConnectorService` is the
-long-running Windows Service wrapper; it calls the connector at startup and then
-once per minute.
+The tray executable polls for jobs and exits after
+`MaxConsecutivePollFailures` failed polls. Installed copies are registered under
+the machine-wide `Run` key and start in the logged-on user's interactive session.
 
 ### Azure CLI details
 
@@ -554,10 +553,6 @@ survives a short restart, but a long outage still exits the process by design.
 - Ordinary development builds are unsigned. Customer artifacts must be produced
   with `release.ps1`, which signs both the EXE and MSI through Azure Artifact
   Signing before verification.
-- **Service account must be supplied at install** (`SERVICEACCOUNT`,
-  `SERVICEPASSWORD`); the service installs `Start="demand"` and will not sync
-  under the `LocalSystem` default. Installing with a real service account has
-  not been exercised — only the LocalSystem default path was tested.
 - **No auto-update mechanism.**
 - **Entity coverage is thin.** Accounts, vendors and customers read; vendors
   also support ID_FETCH, CREATE, UPDATE and DELETE. No invoices, bills,
@@ -572,17 +567,15 @@ survives a short restart, but a long outage still exits the process by design.
 ```
 msiexec /i RutterSage50ConnectorSetup.msi /qn ^
   COMPANYNAME="Bellwether Garden Supply" ACCESSKEY=iat_... CONNECTIONID=<itemId> ^
-  SERVICEACCOUNT="MACHINE\SageUser" SERVICEPASSWORD="..." ^
   /l*v install.log
 ```
 
 `COMPANYNAME`/`ACCESSKEY`/`CONNECTIONID` are written to `sage50Config.json` by
 the `WriteSageConfigJson` custom action; omit them and provision later with
-`--setup`. Omit `SERVICEACCOUNT` and the service installs as `LocalSystem`,
-which cannot authorize against Sage.
-
-The service is **not** started by the installer. Grant Sage access as the
-service account first, then `sc start Sage50ConnectorService`.
+`--setup`. The MSI registers the tray connector under the machine-wide `Run`
+key, so it starts in the next logged-on user's interactive session. Launch it
+from the Start menu to run it immediately, then approve that exact executable in
+Sage as the same Windows user.
 
 **A successful build proves nothing about the installer.** The custom action
 failed to load for a while and every build was green — only `msiexec` surfaced
@@ -591,12 +584,10 @@ real error further up the log.
 
 ## Connector-side pitfalls already fixed — do not regress
 
-- `Service1.cs`: use `System.Timers.Timer` (ambiguous with `System.Threading.Timer`).
 - WiX `Product.wxs`: package shared DLLs from `$(var.Sage50Connector.TargetDir)`.
 - Custom actions are packed by a post-build `MakeSfxCA` step into `*.CA.dll`.
 - A failed poll must not end the process outright — retry with backoff.
-- Harmless warnings: `CS0252` in `Sage50Repository.cs`, NuGet `NU1903` for
-  `System.Text.Json` 7.0.3.
+- Harmless warning: `CS0252` in `Sage50Repository.cs`.
 
 ## Unexplained
 

@@ -198,38 +198,6 @@ namespace Sage50Connector.Helpers
         }
 
         /// <summary>
-        /// Verify Company Access
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        internal string VerifyCompAccess(CompanyIdentifier companyId)
-        {
-            Sage.Peachtree.API.AuthorizationResult authorizationResult = AuthorizationResult.None;
-
-            try
-            {
-                authorizationResult = m_peachtreeSession.VerifyAccess(companyId);
-                return "Authorization result = " + authorizationResult.ToString();
-            }
-            catch (System.Exception ex)
-            {
-                StringBuilder message = new StringBuilder();
-                message.Append(string.Format("ERROR!!! {0} {1}{2}", ex.GetType(), ex.Message, Environment.NewLine));
-                if (ex.InnerException != null)
-                {
-                    message.Append(string.Format("{0}", Environment.NewLine + ex.InnerException.Message));
-                }
-
-                if (ex is AuthorizationException)
-                {
-                    AuthorizationException aEx = (ex as AuthorizationException);
-                }
-
-                throw ex;
-            }
-        }
-
-        /// <summary>
         /// Open the specified company, supplying supplemental authentication information
         ///     so that peachtree can identify it differently from Outlook, the hosting application.
         /// </summary>
