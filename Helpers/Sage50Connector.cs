@@ -145,6 +145,17 @@ namespace Sage50Connector.Helpers
         /// <param name="e"></param>
         internal string RequestAccess(CompanyIdentifier companyId)
         {
+            return "Authorization result = " + RequestAccessResult(companyId).ToString();
+        }
+
+        /// <summary>
+        /// Ask Sage whether this exact executable is approved for the company.
+        /// Sage keys the decision to the executable's MD5, so this is also the
+        /// reliable current-version check. RequestAccess both reads an existing
+        /// decision and registers a request when this build has never been seen.
+        /// </summary>
+        internal AuthorizationResult RequestAccessResult(CompanyIdentifier companyId)
+        {
             Sage.Peachtree.API.AuthorizationResult authorizationResult = AuthorizationResult.None;
 
             try
@@ -166,7 +177,7 @@ namespace Sage50Connector.Helpers
                 // the result should be "Granted" and we can continue to open the company.
                 authorizationResult = PeachtreeSession.RequestAccess(companyId, auth);
                 
-                return "Authorization result = " + authorizationResult.ToString();
+                return authorizationResult;
             }
             catch (System.Exception ex)
             {

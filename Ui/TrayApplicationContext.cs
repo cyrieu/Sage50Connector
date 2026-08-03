@@ -91,8 +91,8 @@ namespace Sage50Connector.Ui
                 {
                     trayIcon.ShowBalloonTip(
                         10000,
-                        "Sage 50 authorization needed",
-                        "Open Sage 50, close and reopen your company, and choose “Always Allow Access”.",
+                        "Sage 50 approval needed for this version",
+                        "Open Sage 50, close and reopen your company, choose “Always Allow Access”, then click Check access.",
                         ToolTipIcon.Warning);
                 }
                 catch { }
@@ -196,7 +196,15 @@ namespace Sage50Connector.Ui
         /// </summary>
         private void RequestSyncNow()
         {
-            SyncStatus.Instance.SetChecking();
+            if (SyncStatus.Instance.SageAuthorization == SageAuthorizationState.Required
+                || SyncStatus.Instance.SageAuthorization == SageAuthorizationState.Checking)
+            {
+                SyncStatus.Instance.SetCheckingAuthorization();
+            }
+            else
+            {
+                SyncStatus.Instance.SetChecking();
+            }
             syncNowSignal.Set();
         }
 

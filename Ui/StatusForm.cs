@@ -17,6 +17,7 @@ namespace Sage50Connector.Ui
     {
         private readonly Label companyLabel = new Label();
         private readonly Label stateLabel = new Label();
+        private readonly Label authorizationLabel = new Label();
         private readonly Label lastSyncLabel = new Label();
         private readonly ProgressBar progress = new ProgressBar();
         private readonly ListView entityList = new ListView();
@@ -44,10 +45,13 @@ namespace Sage50Connector.Ui
             progress.Minimum = 0;
             progress.Maximum = 100;
 
-            lastSyncLabel.SetBounds(14, 100, 440, 20);
+            authorizationLabel.SetBounds(14, 100, 440, 20);
+            authorizationLabel.Font = new Font(Font, FontStyle.Bold);
+
+            lastSyncLabel.SetBounds(14, 120, 440, 20);
             lastSyncLabel.ForeColor = SystemColors.GrayText;
 
-            entityList.SetBounds(14, 128, 440, 150);
+            entityList.SetBounds(14, 148, 440, 130);
             entityList.View = View.Details;
             entityList.FullRowSelect = true;
             entityList.HeaderStyle = ColumnHeaderStyle.Nonclickable;
@@ -77,7 +81,7 @@ namespace Sage50Connector.Ui
 
             Controls.AddRange(new Control[]
             {
-                companyLabel, stateLabel, progress, lastSyncLabel, entityList,
+                companyLabel, stateLabel, progress, authorizationLabel, lastSyncLabel, entityList,
                 authPanel, syncNowButton, logsButton, closeButton,
             });
 
@@ -111,7 +115,7 @@ namespace Sage50Connector.Ui
             Label heading = new Label();
             heading.SetBounds(10, 8, 420, 18);
             heading.Font = new Font(Font, FontStyle.Bold);
-            heading.Text = "Sage 50 needs to authorize this connector";
+            heading.Text = "Sage 50 needs to approve this version";
 
             Label steps = new Label();
             steps.SetBounds(10, 28, 420, 62);
@@ -160,9 +164,32 @@ namespace Sage50Connector.Ui
                     break;
             }
 
-            authPanel.Visible = s.State == ConnectorState.NeedsAuthorization;
+            switch (s.SageAuthorization)
+            {
+                case SageAuthorizationState.Granted:
+                    authorizationLabel.Text = "Sage access: Approved for this version";
+                    authorizationLabel.ForeColor = Color.FromArgb(22, 101, 52);
+                    break;
+                case SageAuthorizationState.Required:
+                    authorizationLabel.Text = "Sage access: Approval required for this version";
+                    authorizationLabel.ForeColor = Color.FromArgb(146, 64, 14);
+                    break;
+                case SageAuthorizationState.Checking:
+                    authorizationLabel.Text = "Sage access: Checking this version…";
+                    authorizationLabel.ForeColor = SystemColors.GrayText;
+                    break;
+                default:
+                    authorizationLabel.Text = "Sage access: Not checked yet";
+                    authorizationLabel.ForeColor = SystemColors.GrayText;
+                    break;
+            }
 
-            bool syncing = s.State == ConnectorState.Syncing;
+            bool needsAuthorization = s.SageAuthorization == SageAuthorizationState.Required;
+            authPanel.Visible = needsAuthorization;
+            syncNowButton.Text = needsAuthorization ? "Check access" : "Sync now";
+
+            bool syncing = s.State == ConnectorState.Syncing
+                || s.SageAuthorization == SageAuthorizationState.Checking;
             progress.Visible = syncing;
             if (syncing)
             {

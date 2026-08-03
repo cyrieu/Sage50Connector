@@ -14,6 +14,14 @@ namespace Sage50Connector.Helpers
         Error,
     }
 
+    public enum SageAuthorizationState
+    {
+        Unknown,
+        Checking,
+        Granted,
+        Required,
+    }
+
     public class EntityStat
     {
         public string Entity { get; set; }
@@ -48,6 +56,7 @@ namespace Sage50Connector.Helpers
         private int recordsTotal;
         private DateTime? lastSyncAt;
         private string companyName;
+        private SageAuthorizationState sageAuthorization = SageAuthorizationState.Unknown;
 
         public ConnectorState State { get { lock (gate) { return state; } } }
         public string Message { get { lock (gate) { return message; } } }
@@ -56,6 +65,7 @@ namespace Sage50Connector.Helpers
         public int RecordsTotal { get { lock (gate) { return recordsTotal; } } }
         public DateTime? LastSyncAt { get { lock (gate) { return lastSyncAt; } } }
         public string CompanyName { get { lock (gate) { return companyName; } } }
+        public SageAuthorizationState SageAuthorization { get { lock (gate) { return sageAuthorization; } } }
 
         public List<EntityStat> Entities
         {
@@ -135,6 +145,44 @@ namespace Sage50Connector.Helpers
             Raise();
         }
 
+        public void SetCheckingAuthorization()
+        {
+            lock (gate)
+            {
+                state = ConnectorState.Starting;
+                sageAuthorization = SageAuthorizationState.Checking;
+                message = "Checking whether Sage 50 approved this version…";
+                currentEntity = null;
+                recordsDone = 0;
+                recordsTotal = 0;
+            }
+            Raise();
+        }
+
+        public void SetAuthorizationGranted()
+        {
+            lock (gate)
+            {
+                state = ConnectorState.Idle;
+                sageAuthorization = SageAuthorizationState.Granted;
+                message = "Sage 50 approved this version. Checking Rutter…";
+                currentEntity = null;
+            }
+            Raise();
+        }
+
+        public void SetAuthorizationCheckFailed(string text)
+        {
+            lock (gate)
+            {
+                state = ConnectorState.Error;
+                sageAuthorization = SageAuthorizationState.Unknown;
+                message = text;
+                currentEntity = null;
+            }
+            Raise();
+        }
+
         public void SetSyncing(string entity, int done, int total)
         {
             lock (gate)
@@ -178,7 +226,8 @@ namespace Sage50Connector.Helpers
             lock (gate)
             {
                 state = ConnectorState.NeedsAuthorization;
-                message = "Sage 50 has not authorized this connector yet.";
+                sageAuthorization = SageAuthorizationState.Required;
+                message = "Sage 50 approval is required for this version.";
                 currentEntity = null;
             }
             Raise();
