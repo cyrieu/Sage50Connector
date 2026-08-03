@@ -23,25 +23,16 @@ namespace Sage50ConnectorSetupCustomActions
                 string accessKey = CustomActionDataValue(session, "AccessKey");
                 string connectionId = CustomActionDataValue(session, "ConnectionId");
 
-                bool companyNameMissing = string.IsNullOrWhiteSpace(companyName);
-                bool accessKeyMissing = string.IsNullOrWhiteSpace(accessKey);
-                bool connectionIdMissing = string.IsNullOrWhiteSpace(connectionId);
-                if (companyNameMissing && accessKeyMissing && connectionIdMissing)
+                if (string.IsNullOrWhiteSpace(companyName)
+                    || string.IsNullOrWhiteSpace(accessKey)
+                    || string.IsNullOrWhiteSpace(connectionId))
                 {
                     session.Log(
-                        "COMPANYNAME/ACCESSKEY/CONNECTIONID were left blank; skipping "
-                            + "sage50Config.json. Provision later with "
+                        "COMPANYNAME/ACCESSKEY/CONNECTIONID were not all provided; "
+                            + "skipping sage50Config.json. Provision later with "
                             + "'Sage50Connector.exe --setup <CompanyName> <OrgId>'."
                     );
                     return ActionResult.Success;
-                }
-                if (companyNameMissing || accessKeyMissing || connectionIdMissing)
-                {
-                    session.Log(
-                        "Sage 50 connection details are incomplete. COMPANYNAME, ACCESSKEY, "
-                            + "and CONNECTIONID must either all be provided or all be blank."
-                    );
-                    return ActionResult.Failure;
                 }
 
                 string configDirectory = Path.Combine(
