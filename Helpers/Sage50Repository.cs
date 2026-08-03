@@ -91,6 +91,75 @@ namespace Sage50Connector.Helpers
         }
 
         /// <summary>
+        /// The company itself — Sage's one company-level record.
+        ///
+        /// There is no factory for this and no list to page: the fields hang off
+        /// the open Company object, so "fetching" it is opening the company. It is
+        /// returned as a one-element list so the LIST_FETCH path pages it like
+        /// anything else and finishes in a single page.
+        ///
+        /// Sage records no timestamp against the company, so there is nothing to
+        /// filter on and updatedAt is deliberately not a parameter — an
+        /// incremental sync re-sends this record and Rutter dedupes it on $.id.
+        /// It is one row.
+        /// </summary>
+        public CompanyInfo GetCompanyInfo(string companyName)
+        {
+            EnsureCompanyConnected(companyName);
+            if (CurrentCompanyDesconnected)
+            {
+                return null;
+            }
+
+            Company company = CompanyManager.Instance.CurrentCompany;
+            CompanyIdentifier identifier = company.CompanyIdentifier;
+            NameAndAddress companyAddress = company.Address;
+            Address address = companyAddress == null ? null : companyAddress.Address;
+
+            var info = new CompanyInfo
+            {
+                ID = identifier.Guid.ToString(),
+                Name = identifier.CompanyName ?? "",
+                LegalName = companyAddress == null ? "" : (companyAddress.Name ?? ""),
+                AccountingMethod = company.AccountingMethod.ToString(),
+                Address1 = address == null ? "" : (address.Address1 ?? ""),
+                Address2 = address == null ? "" : (address.Address2 ?? ""),
+                City = address == null ? "" : (address.City ?? ""),
+                State = address == null ? "" : (address.State ?? ""),
+                Zip = address == null ? "" : (address.Zip ?? ""),
+                Country = address == null ? "" : (address.Country ?? ""),
+                DatabaseName = identifier.DatabaseName ?? "",
+                ServerName = identifier.ServerName ?? "",
+                SchemaVersion = identifier.SchemaVersion ?? "",
+            };
+
+            // Accounting periods are a separate load and a company can have none
+            // configured; a company that will not tell us its periods is still a
+            // company worth reporting.
+            try
+            {
+                var periods = company.Defaults.GeneralLedger.AccountingPeriods;
+                if (periods != null && periods.Count > 0)
+                {
+                    info.FiscalYearStart = periods[0].From.ToString("yyyy-MM-dd");
+                    info.FiscalYearEnd = periods[periods.Count - 1].To.ToString("yyyy-MM-dd");
+                }
+            }
+            catch (Exception ex)
+            {
+                global::Sage50Connector.Program.WriteToFile(
+                    "COMPANY_INFO: could not read accounting periods: " + ex.Message);
+            }
+
+            global::Sage50Connector.Program.WriteToFile(
+                "COMPANY_INFO: company '" + info.Name + "' (" + info.ID + "), "
+                    + info.AccountingMethod + ", periods "
+                    + (info.FiscalYearStart ?? "unknown") + " to " + (info.FiscalYearEnd ?? "unknown"));
+
+            return info;
+        }
+
+        /// <summary>
         /// Whether Sage actually recorded when this record last changed. Records
         /// that have not been touched since the company was created come back with
         /// LastSavedAt null (or DateTime default).
