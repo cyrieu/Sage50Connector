@@ -49,8 +49,17 @@ namespace Sage50Connector.Helpers
         }
         public string OpenCompany(string compName)
         {
-            int index = -1;
-            index = this.Companies.IndexOf(compName);
+            var companyIdentifiers = m_compManager.Companies;
+            int index = companyIdentifiers.FindIndex(company =>
+                (!string.IsNullOrWhiteSpace(Program.CompanyGuid)
+                    && string.Equals(
+                        company.Guid.ToString(),
+                        Program.CompanyGuid,
+                        StringComparison.OrdinalIgnoreCase))
+                || string.Equals(
+                    company.CompanyName,
+                    compName,
+                    StringComparison.Ordinal));
 
             if (index > -1)
             {

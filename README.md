@@ -32,24 +32,17 @@ The MSI lands at `Sage50ConnectorSetup\bin\Release\RutterSage50ConnectorSetup.ms
 Machine requirements: Windows, Sage 50 (US Edition) installed and licensed,
 the target company file openable in the Sage 50 UI, .NET Framework 4.8.
 
-1. Run `RutterSage50ConnectorSetup.msi` (elevated).
-2. On the **Sage 50 connection details** screen, fill in:
-   - **Company name** — the Sage 50 company name exactly as it appears in Sage
-     50 (e.g. `Bellwether Garden Supply`). Must match the company the
-     connector will open.
-   - **Access key** — the connection's inbound access token (`iat_...`).
-   - **Connection ID** — the Rutter connection (item) id (a UUID).
-
-   All three fields are optional: leave them blank and provision afterwards
-   with `--setup` (below) instead.
-3. The installer writes
-   `%ProgramData%\Rutter\Sage50Connector\sage50Config.json` and registers the
-   tray connector to start whenever a user logs on. Launch it from the Start
-   menu if you want to run it immediately.
-4. On the first run, Sage 50 desktop shows an **"Always Allow Access"**
+1. In Rutter Link, start Sage 50 setup and download the MSI.
+2. Run `RutterSage50ConnectorSetup.msi` (elevated). The installer contains no
+   company-name or credential fields.
+3. Return to Rutter Link and click **Choose company in connector**. Windows
+   opens the installed connector through the `rutter-sage50:` setup link.
+4. The connector reads Sage's own company list. Select the company from the
+   dropdown; when only one is available it is selected automatically. Rutter
+   stores the company's stable Sage GUID and the exact SDK-provided name.
+5. On the first access, Sage 50 desktop shows an **"Always Allow Access"**
    approval dialog for the connector (`Rutter Sage 50 Connector`). A Sage 50
-   administrator must approve it once, otherwise the connector only sees the
-   sample company.
+   administrator must approve it once.
 
 ### Re-provisioning without the MSI prompts
 
@@ -67,6 +60,10 @@ This calls `POST {ApiBaseUrl}/sage-50/save-id`, which creates/reuses the
 Rutter connection and returns the access key + connection id. The tool writes
 `sage50Config.json` itself — no hand-edited JSON.
 
+The command-line setup path is retained for development and recovery. Normal
+customer setup never asks anyone to type a Sage company name or copy an inbound
+access token.
+
 ## Configuration
 
 The connector reads exactly one config file:
@@ -75,6 +72,7 @@ The connector reads exactly one config file:
 ```json
 {
   "CompanyName": "<Sage 50 company name>",
+  "CompanyGuid": "<stable Sage company GUID>",
   "AccessKey": "<inbound access token, iat_...>",
   "ConnectionId": "<Rutter connection/item id>",
   "ApiBaseUrl": "https://production.rutterapi.com"  // optional

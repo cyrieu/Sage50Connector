@@ -78,10 +78,20 @@ namespace Sage50Connector
     public class Program
     {
         public static string CompanyName;
+        public static string CompanyGuid;
         public static string AccessKey;
         public static string ConnectionId;
 
         private static ConnectorConfig Config;
+        private static bool winFormsInitialized;
+
+        private static void InitializeWinForms()
+        {
+            if (winFormsInitialized) return;
+            System.Windows.Forms.Application.EnableVisualStyles();
+            System.Windows.Forms.Application.SetCompatibleTextRenderingDefault(false);
+            winFormsInitialized = true;
+        }
 
         /// <summary>
         /// Entry point.
@@ -96,6 +106,12 @@ namespace Sage50Connector
         [STAThread]
         public static int Main(string[] args)
         {
+            if (args.Length > 0 && args[0].StartsWith("rutter-sage50:", StringComparison.OrdinalIgnoreCase))
+            {
+                StopExistingTrayInstance();
+                int setupResult = RunSetupFromUri(args[0]);
+                return setupResult == 0 ? RunTray() : setupResult;
+            }
             if (args.Length > 0 && string.Equals(args[0], "--setup", StringComparison.OrdinalIgnoreCase))
             {
                 return RunSetupAsync(args).GetAwaiter().GetResult();
@@ -164,8 +180,7 @@ namespace Sage50Connector
                     return 0;
                 }
 
-                System.Windows.Forms.Application.EnableVisualStyles();
-                System.Windows.Forms.Application.SetCompatibleTextRenderingDefault(false);
+                InitializeWinForms();
                 System.Windows.Forms.Application.Run(new Ui.TrayApplicationContext());
                 return 0;
             }
@@ -177,6 +192,7 @@ namespace Sage50Connector
             {
                 Config = ConnectorConfig.Load();
                 CompanyName = Config.CompanyName;
+                CompanyGuid = Config.CompanyGuid;
                 AccessKey = Config.AccessKey;
                 ConnectionId = Config.ConnectionId;
             }
@@ -221,6 +237,77 @@ namespace Sage50Connector
                 ReleaseSageSession();
             }
             return 0;
+        }
+
+        private static int RunSetupFromUri(string setupUri)
+        {
+            try
+            {
+                Uri uri = new Uri(setupUri);
+                Dictionary<string, string> query = ParseQueryString(uri.Query);
+                string token;
+                if (!query.TryGetValue("token", out token) || string.IsNullOrWhiteSpace(token))
+                {
+                    throw new InvalidOperationException("The Sage 50 setup link does not contain a setup token.");
+                }
+                string apiBaseUrl;
+                if (!query.TryGetValue("api_base_url", out apiBaseUrl) || string.IsNullOrWhiteSpace(apiBaseUrl))
+                {
+                    apiBaseUrl = ConnectorConfig.DefaultApiBaseUrl;
+                }
+
+                InitializeWinForms();
+                using (var form = new Ui.CompanySelectionForm(token, apiBaseUrl))
+                {
+                    return form.ShowDialog() == System.Windows.Forms.DialogResult.OK ? 0 : 1;
+                }
+            }
+            catch (Exception ex)
+            {
+                WriteToFile("Interactive setup failed: " + ex.Message);
+                System.Windows.Forms.MessageBox.Show(
+                    ex.Message,
+                    "Rutter Sage 50 Connector Setup",
+                    System.Windows.Forms.MessageBoxButtons.OK,
+                    System.Windows.Forms.MessageBoxIcon.Error);
+                return 1;
+            }
+            finally
+            {
+                ReleaseSageSession();
+            }
+        }
+
+        private static Dictionary<string, string> ParseQueryString(string query)
+        {
+            var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string part in (query ?? string.Empty).TrimStart('?').Split('&'))
+            {
+                if (string.IsNullOrWhiteSpace(part)) continue;
+                string[] pair = part.Split(new[] { '=' }, 2);
+                string key = Uri.UnescapeDataString(pair[0].Replace("+", " "));
+                string value = pair.Length > 1
+                    ? Uri.UnescapeDataString(pair[1].Replace("+", " "))
+                    : string.Empty;
+                values[key] = value;
+            }
+            return values;
+        }
+
+        private static void StopExistingTrayInstance()
+        {
+            try
+            {
+                using (var quit = System.Threading.EventWaitHandle.OpenExisting(QuitEventName))
+                {
+                    quit.Set();
+                }
+                System.Threading.Thread.Sleep(750);
+            }
+            catch
+            {
+                // No existing tray instance is normal on a fresh installation.
+            }
         }
 
         /// <summary>
@@ -545,10 +632,16 @@ namespace Sage50Connector
                 try
                 {
                     CompanyIdentifier company = Helpers.CompanyManager.Instance.Companies
-                        .FirstOrDefault(c => string.Equals(
-                            c.CompanyName,
-                            companyName,
-                            StringComparison.Ordinal));
+                        .FirstOrDefault(c =>
+                            (!string.IsNullOrWhiteSpace(CompanyGuid)
+                                && string.Equals(
+                                    c.Guid.ToString(),
+                                    CompanyGuid,
+                                    StringComparison.OrdinalIgnoreCase))
+                            || string.Equals(
+                                c.CompanyName,
+                                companyName,
+                                StringComparison.Ordinal));
 
                     if (company == null)
                     {

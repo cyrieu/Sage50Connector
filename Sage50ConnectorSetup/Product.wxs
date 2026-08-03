@@ -19,30 +19,13 @@
       <ComponentGroupRef Id="ShortcutComponents" />
     </Feature>
 
-    <!-- Installer UI: standard install-dir flow + the Sage connection-details dialog (ConfigDlg.wxs) -->
+    <!-- Company selection happens after installation, inside the connector, using Sage's SDK. -->
     <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
     <WixVariable Id="WixUILicenseRtf"
                  Value="$(var.ProjectDir)PrivacyPolicy.rtf" />
     <UIRef Id="WixUI_InstallDir" />
     <UIRef Id="WixUI_ErrorProgressText" />
 
-    <!-- Deferred custom action that writes sage50Config.json from COMPANYNAME/ACCESSKEY/CONNECTIONID -->
-    <Binary Id="WriteSageConfigJsonCA"
-            SourceFile="$(var.Sage50ConnectorSetupCustomActions.TargetDir)$(var.Sage50ConnectorSetupCustomActions.TargetName).CA.dll" />
-    <CustomAction Id="SetWriteSageConfigJson"
-                  Property="WriteSageConfigJson"
-                  Value="CompanyName=[COMPANYNAME];AccessKey=[ACCESSKEY];ConnectionId=[CONNECTIONID]"
-                  Execute="immediate" />
-    <CustomAction Id="WriteSageConfigJson"
-                  BinaryKey="WriteSageConfigJsonCA"
-                  DllEntry="WriteSageConfigJson"
-                  Execute="deferred"
-                  Impersonate="no"
-                  Return="check" />
-    <InstallExecuteSequence>
-      <Custom Action="SetWriteSageConfigJson" After="InstallFiles">NOT Installed AND NOT REMOVE</Custom>
-      <Custom Action="WriteSageConfigJson" After="SetWriteSageConfigJson">NOT Installed AND NOT REMOVE</Custom>
-    </InstallExecuteSequence>
   </Product>
 
   <Fragment>
@@ -85,6 +68,17 @@
                        Name="InstallPath"
                        Type="string"
                        Value="[INSTALLFOLDER]" />
+      </Component>
+      <Component Id="Sage50ConnectorSetupProtocol" Guid="{71529C5A-4EAF-4BB1-A367-423D14D11D59}">
+        <RegistryKey Root="HKLM" Key="Software\Classes\rutter-sage50">
+          <RegistryValue Type="string" Value="URL:Rutter Sage 50 Setup" />
+          <RegistryValue Name="URL Protocol" Type="string" Value="" />
+          <RegistryKey Key="shell\open\command">
+            <RegistryValue Type="string"
+                           Value="&quot;[INSTALLFOLDER]Sage50Connector.exe&quot; &quot;%1&quot;"
+                           KeyPath="yes" />
+          </RegistryKey>
+        </RegistryKey>
       </Component>
       <Component Id="NewtonsoftJson" Guid="{1F2DA1C6-B49D-4255-9915-5C4235633D57}">
         <File Id="Newtonsoft.Json.dll" Source="$(var.Sage50Connector.TargetDir)Newtonsoft.Json.dll" KeyPath="yes" />
