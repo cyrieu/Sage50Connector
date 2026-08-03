@@ -29,6 +29,23 @@ namespace Sage50Connector.Models.Rutter
         public string ID { get; set; }
 
         /// <summary>
+        /// Which Sage collection this line came from.
+        ///
+        /// Sage splits one document's lines across several collections depending
+        /// on what the document was raised from: an invoice typed by hand keeps
+        /// its lines in ApplyToSalesLines, but one raised from a sales order keeps
+        /// them in ApplyToSalesOrderLines, and from a proposal in
+        /// ApplyToProposalLines. They are merged into a single `lines` array here
+        /// because they are all lines of the same invoice, and tagged so a mapper
+        /// can still tell them apart — retainage in particular is a withholding,
+        /// not a sale.
+        ///
+        /// Reading only the first collection lost every line of 10 of
+        /// Bellwether's 107 invoices ($28,333.82) and 4 of its 59 bills.
+        /// </summary>
+        public string LineType { get; set; }
+
+        /// <summary>
         /// GL account, as the account's Sage **ID** (e.g. "10200-00") rather than
         /// its GUID, so it matches the platform_id of the ACCOUNTS rows Rutter
         /// already holds. Null when the account could not be resolved.
