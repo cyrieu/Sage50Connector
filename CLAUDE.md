@@ -4,6 +4,11 @@ The connector is a Windows desktop agent that reverse-polls Rutter for jobs and
 services them against a local Sage 50 install through the Sage Peachtree SDK.
 Rutter never connects inbound; the connector always dials out.
 
+**The Rutter side is documented in rutter-backend**, at
+`src/platformization/platforms/sage_50/CLAUDE.md` — how jobs are generated, the
+end-to-end data-flow diagram, and the server-side gotchas. Read it alongside
+this file; this one covers the Windows and Sage half.
+
 ## What runs where
 
 - Develop and commit C# changes on macOS if preferred.
@@ -346,6 +351,11 @@ rutter-backend** — it must ship to production before `--setup` works for
 customers.
 
 ## The ingest protocol
+
+How jobs get *generated* — the refresh scheduler, `selectNextJob`, and the
+data-flow diagram — lives in rutter-backend at
+`src/platformization/platforms/sage_50/CLAUDE.md`. What follows is the
+connector's side of the same contract.
 
 The connector polls `POST {ApiBaseUrl}/versioned/ingest` with
 `X-Rutter-Version: 2024-04-30` and `Authorization: Bearer <iat_…>`, body
