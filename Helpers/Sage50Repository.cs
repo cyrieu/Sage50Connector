@@ -748,6 +748,154 @@ namespace Sage50Connector.Helpers
             return results;
         }
 
+        /// <summary>
+        /// Customer receipts — accounts receivable payments. Sage's Receipt is
+        /// the AR twin of Payment: ApplyToInvoiceLines settle existing sales
+        /// invoices, ApplyToSalesLines are cash sales on the receipt itself.
+        /// Both collections are reported so a mapper can keep invoice payments
+        /// (linked invoices) without inventing sales-receipt handling.
+        /// </summary>
+        public List<InvoicePaymentBody> GetInvoicePayments(string companyName, string updatedAt = null)
+        {
+            var results = new List<InvoicePaymentBody>();
+            EnsureCompanyConnected(companyName);
+            if (CurrentCompanyDesconnected)
+            {
+                return results;
+            }
+
+            DateTime? cutoff = ParseCutoff(updatedAt);
+            ReferenceIndex index = BuildReferenceIndex(accounts: true, customers: true, vendors: false);
+
+            var receipts = CompanyManager.Instance.CurrentCompany.Factories.ReceiptFactory.List();
+            receipts.Load();
+
+            int total = 0;
+            int withoutTimestamp = 0;
+            int invoiceLineCount = 0;
+            int salesLineCount = 0;
+            foreach (Receipt receipt in receipts)
+            {
+                total++;
+                if (!HasTimestamp(receipt.LastSavedAt))
+                {
+                    withoutTimestamp++;
+                }
+                if (!ChangedSince(receipt.LastSavedAt, cutoff))
+                {
+                    continue;
+                }
+
+                var body = new InvoicePaymentBody
+                {
+                    CustomerID = index.Resolve(receipt.CustomerReference),
+                    ReceiptNumber = receipt.ReceiptNumber,
+                    PaymentMethod = receipt.PaymentMethod,
+                    DepositTicketID = receipt.DepositTicketID,
+                    SalesTaxAmount = receipt.SalesTaxAmount,
+                    DiscountAccountID = index.Resolve(receipt.DiscountAccountReference),
+                    SalesRepresentativeGuid = ReferenceIndex.GuidOf(receipt.SalesRepresentativeReference),
+                    SalesTaxCodeGuid = ReferenceIndex.GuidOf(receipt.SalesTaxCodeReference),
+                    MainAddress = MapAddress(receipt.MainAddress),
+                };
+                MapTransactionHeader(body, receipt, index);
+
+                if (receipt.ApplyToInvoiceLines != null)
+                {
+                    foreach (ReceiptInvoiceLine line in receipt.ApplyToInvoiceLines)
+                    {
+                        if (!IsRealLine(line))
+                        {
+                            continue;
+                        }
+                        var lineBody = new ReceiptAppliedInvoiceLineBody
+                        {
+                            LineType = "appliedToInvoice",
+                            AmountPaid = line.AmountPaid,
+                            DiscountAmount = line.DiscountAmount,
+                            DiscountAccountID = index.Resolve(line.DiscountAccountReference),
+                            InvoiceGuid = ReferenceIndex.GuidOf(line.InvoiceReference),
+                            JobGuid = ReferenceIndex.GuidOf(line.JobReference),
+                        };
+                        MapLineBase(lineBody, line, index);
+                        body.InvoiceLines.Add(lineBody);
+                        invoiceLineCount++;
+                    }
+                }
+
+                if (receipt.ApplyToSalesLines != null)
+                {
+                    foreach (ReceiptSalesLine line in receipt.ApplyToSalesLines)
+                    {
+                        if (!IsRealLine(line))
+                        {
+                            continue;
+                        }
+                        body.SalesLines.Add(MakeItemLine<ReceiptSalesLineBody>(
+                            line, "sales", line.Quantity, line.UnitPrice,
+                            line.InventoryItemReference, line.JobReference, index));
+                        salesLineCount++;
+                    }
+                }
+
+                results.Add(body);
+            }
+
+            LogFilterOutcome("INVOICE_PAYMENTS", total, withoutTimestamp, results.Count, cutoff);
+            global::Sage50Connector.Program.WriteToFile(
+                "INVOICE_PAYMENTS: " + invoiceLineCount + " applied-to-invoice line(s) and "
+                    + salesLineCount + " sales line(s) across "
+                    + results.Count + " receipt(s).");
+            return results;
+        }
+
+        /// <summary>
+        /// Employees. Sage has no LastSavedAt on this entity, so the cutoff is
+        /// ignored and every sync re-sends the full list. The record is short —
+        /// id, name, email, inactive, sales-rep flag, first phone — and is
+        /// enough for HRIS mapping of sales reps and basic staff.
+        /// </summary>
+        public List<ChartofEmployee> GetEmployees(string companyName, string updatedAt = null)
+        {
+            var results = new List<ChartofEmployee>();
+            EnsureCompanyConnected(companyName);
+            if (CurrentCompanyDesconnected)
+            {
+                return results;
+            }
+
+            // Employees have no LastSavedAt; updatedAt is deliberately unused.
+            var employees = CompanyManager.Instance.CurrentCompany.Factories.EmployeeFactory.List();
+            employees.Load();
+
+            foreach (Employee employee in employees)
+            {
+                string phone = null;
+                if (employee.PhoneNumbers != null && employee.PhoneNumbers.Count > 0)
+                {
+                    PhoneNumber first = employee.PhoneNumbers[0];
+                    if (first != null && !string.IsNullOrEmpty(first.Number))
+                    {
+                        phone = first.Number;
+                    }
+                }
+
+                results.Add(new ChartofEmployee
+                {
+                    ID = employee.ID,
+                    Name = employee.Name,
+                    Email = employee.Email,
+                    IsInactive = employee.IsInactive,
+                    IsSalesRepresentative = employee.IsSalesRepresentative,
+                    Phone = phone,
+                });
+            }
+
+            global::Sage50Connector.Program.WriteToFile(
+                "EMPLOYEES: Sage returned " + results.Count + " employee(s).");
+            return results;
+        }
+
         #endregion
 
         public List<ChartofVendor> GetVendors(string companyName, string updatedAt = null)
