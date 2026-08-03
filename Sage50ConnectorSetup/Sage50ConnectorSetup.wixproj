@@ -20,7 +20,6 @@
     <IntermediateOutputPath>obj\$(Configuration)\</IntermediateOutputPath>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="ConfigDlg.wxs" />
     <Compile Include="Product.wxs" />
   </ItemGroup>
   <ItemGroup>
@@ -33,15 +32,6 @@
       <Project>{1A2850F1-40CB-4F8F-9535-95DEFCD8983D}</Project>
       <Private>True</Private>
       <DoNotHarvest>True</DoNotHarvest>
-      <RefProjectOutputGroups>Binaries;Content;Satellites</RefProjectOutputGroups>
-      <RefTargetDir>INSTALLFOLDER</RefTargetDir>
-    </ProjectReference>
-    <ProjectReference Include="..\Sage50ConnectorSetupCustomActions\Sage50ConnectorSetupCustomActions.csproj">
-      <Name>Sage50ConnectorSetupCustomActions</Name>
-      <Project>{FAAF6BD0-6308-4E4A-B9ED-192B3AE5BD49}</Project>
-      <Private>True</Private>
-      <DoNotHarvest>True</DoNotHarvest>
-      <PackProject>True</PackProject>
       <RefProjectOutputGroups>Binaries;Content;Satellites</RefProjectOutputGroups>
       <RefTargetDir>INSTALLFOLDER</RefTargetDir>
     </ProjectReference>

@@ -41,6 +41,7 @@ namespace Sage50Connector.Helpers
         public static readonly string LegacyLogFilePath = Path.Combine(LegacyConfigDirectory, "log.txt");
 
         public string CompanyName { get; private set; }
+        public string CompanyGuid { get; private set; }
         public string AccessKey { get; private set; }
         public string ConnectionId { get; private set; }
         public string ApiBaseUrl { get; private set; }
@@ -100,6 +101,7 @@ namespace Sage50Connector.Helpers
             return new ConnectorConfig
             {
                 CompanyName = GetRequiredValue(json, "CompanyName"),
+                CompanyGuid = json.Value<string>("CompanyGuid"),
                 AccessKey = GetRequiredValue(json, "AccessKey"),
                 ConnectionId = GetRequiredValue(json, "ConnectionId"),
                 ApiBaseUrl = json.Value<string>("ApiBaseUrl") ?? DefaultApiBaseUrl,
@@ -111,12 +113,18 @@ namespace Sage50Connector.Helpers
         /// Writes sage50Config.json to the ProgramData directory, creating it if
         /// needed. Never logs the access key.
         /// </summary>
-        public static ConnectorConfig Save(string companyName, string accessKey, string connectionId, string apiBaseUrl)
+        public static ConnectorConfig Save(
+            string companyName,
+            string accessKey,
+            string connectionId,
+            string apiBaseUrl,
+            string companyGuid = null)
         {
             Directory.CreateDirectory(ConfigDirectory);
             var config = new ConnectorConfig
             {
                 CompanyName = companyName,
+                CompanyGuid = companyGuid,
                 AccessKey = accessKey,
                 ConnectionId = connectionId,
                 ApiBaseUrl = string.IsNullOrWhiteSpace(apiBaseUrl) ? DefaultApiBaseUrl : apiBaseUrl,
@@ -129,6 +137,10 @@ namespace Sage50Connector.Helpers
                 ["AccessKey"] = config.AccessKey,
                 ["ConnectionId"] = config.ConnectionId,
             };
+            if (!string.IsNullOrWhiteSpace(config.CompanyGuid))
+            {
+                json["CompanyGuid"] = config.CompanyGuid;
+            }
             if (!string.Equals(config.ApiBaseUrl, DefaultApiBaseUrl, StringComparison.OrdinalIgnoreCase))
             {
                 json["ApiBaseUrl"] = config.ApiBaseUrl;
