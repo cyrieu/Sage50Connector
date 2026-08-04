@@ -966,6 +966,16 @@ namespace Sage50Connector
                     WriteToFile(DateTime.Now + $": Retrieved {expenses.Count} payments from Sage 50.");
                     data = expenses.Cast<object>().ToList();
                     break;
+                case "INVOICE_PAYMENTS":
+                    var invoicePayments = Sage50Repository.Instance.GetInvoicePayments(companyName, updatedAt);
+                    WriteToFile(DateTime.Now + $": Retrieved {invoicePayments.Count} receipts from Sage 50.");
+                    data = invoicePayments.Cast<object>().ToList();
+                    break;
+                case "EMPLOYEES":
+                    var employees = Sage50Repository.Instance.GetEmployees(companyName, updatedAt);
+                    WriteToFile(DateTime.Now + $": Retrieved {employees.Count} employees from Sage 50.");
+                    data = employees.Cast<object>().ToList();
+                    break;
                 default:
                     throw new ArgumentException("Unknown platform entity: " + entity);
             }

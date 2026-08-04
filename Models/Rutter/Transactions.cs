@@ -234,4 +234,51 @@ namespace Sage50Connector.Models.Rutter
         public List<PaymentAppliedInvoiceLineBody> InvoiceLines { get; set; } =
             new List<PaymentAppliedInvoiceLineBody>();
     }
+
+    /// <summary>
+    /// A line where a receipt was applied against an existing sales invoice.
+    /// <see cref="InvoiceGuid"/> is the same GUID the INVOICES read reports as
+    /// <c>id</c>, so a mapper links without extra resolution.
+    /// </summary>
+    public class ReceiptAppliedInvoiceLineBody : TransactionLineBodyBase
+    {
+        public decimal AmountPaid { get; set; }
+        public decimal DiscountAmount { get; set; }
+        public string DiscountAccountID { get; set; }
+        public string InvoiceGuid { get; set; }
+    }
+
+    /// <summary>
+    /// A cash-sale line on a receipt (not applied to an existing invoice).
+    /// Reported so the payload is complete; the INVOICE_PAYMENTS mapper keeps
+    /// only receipts that also have applied-invoice lines.
+    /// </summary>
+    public class ReceiptSalesLineBody : ItemLineBodyBase
+    {
+    }
+
+    /// <summary>
+    /// A Sage Receipt — money received from a customer. Mirrors Payment on the
+    /// AR side: invoice lines settle existing sales invoices, sales lines are
+    /// cash sales entered on the receipt itself.
+    /// </summary>
+    public class InvoicePaymentBody : TransactionBodyBase
+    {
+        /// <summary>Customer's Sage ID, matching the CUSTOMERS platform_id.</summary>
+        public string CustomerID { get; set; }
+
+        public string ReceiptNumber { get; set; }
+        public string PaymentMethod { get; set; }
+        public string DepositTicketID { get; set; }
+        public decimal SalesTaxAmount { get; set; }
+        public string DiscountAccountID { get; set; }
+        public string SalesRepresentativeGuid { get; set; }
+        public string SalesTaxCodeGuid { get; set; }
+        public SageAddressBody MainAddress { get; set; }
+
+        public List<ReceiptAppliedInvoiceLineBody> InvoiceLines { get; set; } =
+            new List<ReceiptAppliedInvoiceLineBody>();
+        public List<ReceiptSalesLineBody> SalesLines { get; set; } =
+            new List<ReceiptSalesLineBody>();
+    }
 }
