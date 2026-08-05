@@ -7,7 +7,9 @@ description: Build, Authenticode-sign, package, and verify a customer-ready Sage
 
 Produce one immutable signed EXE and MSI from the pushed tip of
 `rutter/productionize-v1`. Build and package on the Windows VM, but authenticate
-to Azure and sign on the Mac.
+to Azure and sign on the Mac. After verification, upload the installer to the
+public S3 object that Rutter Link / rutter-backend redirects customers to during
+Sage 50 setup.
 
 ## Invocation gate
 
@@ -27,9 +29,14 @@ Confirm all of the following:
 - The working tree is clean and the intended commit is pushed to
   `origin/rutter/productionize-v1`.
 - SSH works with `~/.ssh/<ssh-key-name>` to `<SAGE50_SSH_USER>@<SAGE50_VM_HOST>`.
-- `az`, `jsign`, `ssh`, and `scp` are installed on the Mac.
+  If SSH times out, the VM may be deallocated — start it first:
+  `az vm start -g <SAGE50_VM_RG> -n <SAGE50_VM_NAME>`.
+- `az`, `jsign`, `ssh`, `scp`, and `aws` are installed on the Mac.
 - The Mac's Azure CLI identity is authenticated and can use the
   `<SAGE50_SIGNING_SUBSCRIPTION>` subscription.
+- AWS can write the public installer bucket with profile `<aws-profile>`
+  (default AWS session is often expired):
+  `AWS_PROFILE=<aws-profile> aws s3 ls s3://rutterpublicimages/ --region us-east-2`.
 - No release directory already exists for the current commit. Never overwrite,
   rebuild, modify, or re-sign an existing release.
 
@@ -61,7 +68,7 @@ single clean retry is acceptable only if signing had not started. Do not retry
 after either artifact was signed; investigate instead to avoid replacing an
 immutable release.
 
-## Verify and report
+## Verify the signed artifacts
 
 Success requires all of these:
 
@@ -72,9 +79,82 @@ Success requires all of these:
 - The output directory is `artifacts/sage50-release-<git-sha>/` and contains
   `Sage50Connector.exe` and `RutterSage50ConnectorSetup.msi`.
 
-Report the source commit, absolute artifact directory, both SHA-256 checksums,
-and signature status. Remind the user that a newly signed EXE has a new MD5, so
-Sage approval must be performed against this exact shipping binary.
+## Upload to the Sage 50 auth-flow installer URL
 
-Do not install, distribute, or start the release unless the user separately
-requests that action.
+Link and rutter-backend do **not** host the MSI themselves. During setup:
+
+1. Link calls `POST /sage-50/setup-session`.
+2. The response's `installer_url` is `{backend}/sage-50/installer`.
+3. That route **302-redirects** to `SAGE_50_INSTALLER_URL`, defaulting to:
+
+```text
+https://rutterpublicimages.s3.us-east-2.amazonaws.com/Sage+50+Connector+Installer.zip
+```
+
+Source of truth in rutter-backend:
+
+```text
+src/platformization/platforms/sage_50/routes/index.ts
+  DEFAULT_SAGE_50_INSTALLER_URL
+  getSage50InstallerUrl()
+  GET /sage-50/installer  →  res.redirect(...)
+```
+
+rutter-link-web only consumes `installer_url` from that setup response
+(`src/stores/Sage50.tsx`); it does not hardcode the S3 path. Production's
+`SAGE_50_INSTALLER_URL` env, if set, overrides the default — confirm prod still
+points at this object (or update the upload target to match) before shipping.
+
+After the signed release verifies, publish the new MSI to that object. **Do not
+upload until the release script has printed `SIGNED RELEASE OK`.**
+
+From the release directory:
+
+```bash
+release_dir=artifacts/sage50-release-<git-sha>
+msi="$release_dir/RutterSage50ConnectorSetup.msi"
+zip_path="$release_dir/Sage 50 Connector Installer.zip"
+
+# Customers download a zip; keep the product MSI at the root of the archive.
+rm -f "$zip_path"
+zip -j "$zip_path" "$msi"
+
+# <aws-profile> can write rutterpublicimages; default AWS login often cannot.
+AWS_PROFILE=<aws-profile> aws s3 cp "$zip_path" \
+  "s3://rutterpublicimages/Sage 50 Connector Installer.zip" \
+  --region us-east-2 \
+  --content-type application/zip \
+  --metadata "git-sha=<full-or-short-sha>,product=RutterSage50ConnectorSetup.msi"
+
+# Confirm the public redirect target serves the new bytes.
+curl -sI "https://rutterpublicimages.s3.us-east-2.amazonaws.com/Sage+50+Connector+Installer.zip" \
+  | grep -iE 'HTTP/|Last-Modified|Content-Length|ETag'
+shasum -a 256 "$zip_path" "$msi"
+```
+
+Notes:
+
+- The S3 key is exactly `Sage 50 Connector Installer.zip` (spaces in the key;
+  URL-encoded as `Sage+50+Connector+Installer.zip`).
+- Overwriting this key updates production downloads immediately for every
+  customer who hits `/sage-50/installer`. Treat it as a production publish.
+- The previous object was an older Debug-era zip (`Debug/Sage50ConnectorSetup.msi`
+  + `setup.exe`). The current product ships a single signed
+  `RutterSage50ConnectorSetup.msi` at the zip root — that is intentional.
+- Do not commit the zip or MSI into git; leave them under `artifacts/`.
+- If prod uses a non-default `SAGE_50_INSTALLER_URL`, upload there instead (or
+  change the env to this default and upload here). Do not leave Link pointing at
+  a stale object after a customer release.
+
+## Report
+
+Report the source commit, absolute artifact directory, both SHA-256 checksums
+(EXE + MSI), signature status, and the S3 upload confirmation (key, region,
+new `Last-Modified` / `ETag` / size). Remind the user that a newly signed EXE
+has a new MD5, so Sage approval must be performed against this exact shipping
+binary.
+
+Do not install the release on the VM or start the connector unless the user
+separately requests that action. Uploading the installer zip **is** part of a
+customer release once signing succeeds — it is the distribution step for the
+auth flow.
