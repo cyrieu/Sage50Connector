@@ -1,15 +1,26 @@
 param(
-  [string]$Subscription = '<SAGE50_SIGNING_SUBSCRIPTION>',
-  [string]$Endpoint = 'https://eus.codesigning.azure.net',
-  [string]$SigningAccount = '<SAGE50_SIGNING_ACCOUNT>',
-  [string]$CertificateProfile = '<SAGE50_SIGNING_CERTIFICATE_PROFILE>'
+  [string]$Subscription = $env:SAGE50_SIGNING_SUBSCRIPTION,
+  [string]$Endpoint = $env:SAGE50_SIGNING_ENDPOINT,
+  [string]$SigningAccount = $env:SAGE50_SIGNING_ACCOUNT,
+  [string]$CertificateProfile = $env:SAGE50_SIGNING_CERTIFICATE_PROFILE
 )
 
 # Produce immutable, signed customer release artifacts.
 # Run this from an interactive PowerShell session on the Windows VM after
 # authenticating Azure CLI as an identity with the Artifact Signing Certificate
 # Profile Signer role. Never rebuild or otherwise modify the outputs afterward.
+#
+# Required parameters / env (no hard-coded lab values):
+#   SAGE50_SIGNING_SUBSCRIPTION
+#   SAGE50_SIGNING_ENDPOINT
+#   SAGE50_SIGNING_ACCOUNT
+#   SAGE50_SIGNING_CERTIFICATE_PROFILE
 $ErrorActionPreference = 'Stop'
+
+if ([string]::IsNullOrWhiteSpace($Subscription)) { throw 'Set -Subscription or SAGE50_SIGNING_SUBSCRIPTION' }
+if ([string]::IsNullOrWhiteSpace($Endpoint)) { throw 'Set -Endpoint or SAGE50_SIGNING_ENDPOINT' }
+if ([string]::IsNullOrWhiteSpace($SigningAccount)) { throw 'Set -SigningAccount or SAGE50_SIGNING_ACCOUNT' }
+if ([string]::IsNullOrWhiteSpace($CertificateProfile)) { throw 'Set -CertificateProfile or SAGE50_SIGNING_CERTIFICATE_PROFILE' }
 
 $repo = 'C:\src\Sage50Connector'
 $solution = Join-Path $repo 'Sage50Connector.sln'

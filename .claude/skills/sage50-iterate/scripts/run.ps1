@@ -46,7 +46,8 @@ Unregister-ScheduledTask -TaskName RutterSageLive -Confirm:$false -ErrorAction S
 $action = New-ScheduledTaskAction `
   -Execute 'C:\src\Sage50Connector\bin\Release\Sage50Connector.exe' `
   -WorkingDirectory 'C:\src\Sage50Connector\bin\Release'
-$principal = New-ScheduledTaskPrincipal -UserId $env:SAGE50_WINDOWS_USER -LogonType Interactive -RunLevel Highest
+$windowsUser = if ($env:SAGE50_WINDOWS_USER) { $env:SAGE50_WINDOWS_USER } else { $env:USERNAME }
+$principal = New-ScheduledTaskPrincipal -UserId $windowsUser -LogonType Interactive -RunLevel Highest
 Register-ScheduledTask -TaskName RutterSageLive -Action $action -Principal $principal | Out-Null
 Start-ScheduledTask -TaskName RutterSageLive
 

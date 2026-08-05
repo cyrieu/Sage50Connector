@@ -24,12 +24,16 @@ itself authorize signing.
 
 ## Preconditions
 
-- An RDP session to `<SAGE50_VM_HOST>` open on the Mac, logged in as the lab Windows user.
-  Everything below depends on it: Sage's grant is per Windows user, and the
-  approval agent drives that window.
+- Lab env vars set in the shell (never commit real values):
+  `SAGE50_VM_RG`, `SAGE50_VM_NAME`, `SAGE50_VM_SUBSCRIPTION`, and for SSH-based
+  release scripts `SAGE50_SSH_HOST` / `SAGE50_SSH_USER` / `SAGE50_SSH_KEY`.
+- An RDP session to the lab VM open on the Mac, logged in as the Windows user
+  who will approve Sage (`SAGE50_WINDOWS_USER` if not the default interactive
+  user). Everything below depends on it: Sage's grant is per Windows user, and
+  the approval agent drives that window.
 - rutter-backend running from the branch that has the Sage 50 routes
   (`paperclip/RUT-29-re-setup-the-sage-50-integration`, `PORT=4007`), with
-  `ngrok http --hostname=<your-ngrok-hostname> 4007`.
+  `ngrok http 4007` (or a reserved hostname you control).
 - `az` logged in.
 
 Check the VM end with:
@@ -77,7 +81,7 @@ which reads as a bug.
 ```bash
 cd <rutter-backend>/.paperclip/worktrees/paperclip/RUT-29-re-setup-the-sage-50-integration
 DB=$(grep -E '^DATABASE_URL' .env | cut -d= -f2-)
-ITEM=<REDACTED_CONNECTION_ID>
+ITEM=<item-id>
 psql "$DB" -c "delete from platform_entities where item_id='$ITEM';"
 psql "$DB" -c "delete from desktop_platform_jobs where item_id='$ITEM' and status in ('enqueued','in_progress');"
 for E in ACCOUNTS VENDORS CUSTOMERS; do
@@ -189,7 +193,7 @@ All four are **vendors only**; any other entity is reported back as unsupported.
 ```bash
 cd <rutter-backend>/.paperclip/worktrees/paperclip/RUT-29-re-setup-the-sage-50-integration
 DB=$(grep -E '^DATABASE_URL' .env | cut -d= -f2-)
-ITEM=<REDACTED_CONNECTION_ID>
+ITEM=<item-id>
 
 # clear anything in flight first, or a stale job wins the race
 psql "$DB" -c "delete from desktop_platform_jobs

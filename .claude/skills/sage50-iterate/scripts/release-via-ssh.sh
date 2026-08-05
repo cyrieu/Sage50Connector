@@ -1,17 +1,40 @@
 #!/usr/bin/env bash
 # Build on the Windows VM, sign on this Mac, and move the immutable artifacts
 # back and forth over SSH/SCP. Azure credentials never need to be stored on the VM.
+#
+# Required env (no defaults — keep lab infrastructure out of the public tree):
+#   SAGE50_SSH_HOST
+#   SAGE50_SSH_USER
+#   SAGE50_SSH_KEY
+#   SAGE50_SIGNING_SUBSCRIPTION
+#   SAGE50_SIGNING_ENDPOINT
+#   SAGE50_SIGNING_ACCOUNT
+#   SAGE50_SIGNING_CERTIFICATE_PROFILE
+# Optional:
+#   SAGE50_SSH_REMOTE_WIN_HOME  (default: C:/Users/$SAGE50_SSH_USER)
 set -euo pipefail
 
 script_dir=$(cd "$(dirname "$0")" && pwd)
 repo_root=$(cd "$script_dir/../../../.." && pwd)
-host="${SAGE50_SSH_HOST:-<SAGE50_VM_HOST>}"
-user="${SAGE50_SSH_USER:-<ssh-user>}"
-key="${SAGE50_SSH_KEY:-$HOME/.ssh/<ssh-key-name>}"
+
+: "${SAGE50_SSH_HOST:?Set SAGE50_SSH_HOST to the lab VM host or IP}"
+: "${SAGE50_SSH_USER:?Set SAGE50_SSH_USER to the SSH username on the lab VM}"
+: "${SAGE50_SSH_KEY:?Set SAGE50_SSH_KEY to the path of the SSH private key}"
+: "${SAGE50_SIGNING_SUBSCRIPTION:?Set SAGE50_SIGNING_SUBSCRIPTION}"
+: "${SAGE50_SIGNING_ENDPOINT:?Set SAGE50_SIGNING_ENDPOINT (Azure Trusted Signing endpoint URL)}"
+: "${SAGE50_SIGNING_ACCOUNT:?Set SAGE50_SIGNING_ACCOUNT}"
+: "${SAGE50_SIGNING_CERTIFICATE_PROFILE:?Set SAGE50_SIGNING_CERTIFICATE_PROFILE}"
+
+host="$SAGE50_SSH_HOST"
+user="$SAGE50_SSH_USER"
+key="$SAGE50_SSH_KEY"
 remote="$user@$host"
-subscription='<SAGE50_SIGNING_SUBSCRIPTION>'
-endpoint='https://eus.codesigning.azure.net'
-alias='<SAGE50_SIGNING_ACCOUNT>/<SAGE50_SIGNING_CERTIFICATE_PROFILE>'
+subscription="$SAGE50_SIGNING_SUBSCRIPTION"
+endpoint="$SAGE50_SIGNING_ENDPOINT"
+alias="$SAGE50_SIGNING_ACCOUNT/$SAGE50_SIGNING_CERTIFICATE_PROFILE"
+remote_win_home="${SAGE50_SSH_REMOTE_WIN_HOME:-C:/Users/$user}"
+# PowerShell path form of the staging directory (backslashes).
+remote_win_home_ps="${remote_win_home//\//\\}"
 ssh_opts=(-i "$key" -o BatchMode=yes -o ConnectTimeout=10)
 
 for command in az jsign ssh scp; do
@@ -37,9 +60,9 @@ release_dir="$repo_root/artifacts/sage50-release-$expected_short"
 }
 
 scp "${ssh_opts[@]}" "$script_dir/stop-for-release.ps1" \
-  "$remote:C:/Users/<SAGE50_SSH_USER>/sage50-stop-for-release.ps1"
+  "$remote:$remote_win_home/sage50-stop-for-release.ps1"
 ssh "${ssh_opts[@]}" "$remote" \
-  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\\Users\\<SAGE50_SSH_USER>\\sage50-stop-for-release.ps1"
+  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File $remote_win_home_ps\\sage50-stop-for-release.ps1"
 ssh "${ssh_opts[@]}" "$remote" \
   "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\\src\\Sage50Connector\\.claude\\skills\\sage50-iterate\\scripts\\build.ps1"
 

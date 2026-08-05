@@ -7,15 +7,20 @@
 #     and a timed-out extension wedges the channel for minutes
 #
 # Usage: vmrun.sh <script.ps1>
+#
+# Required env (no defaults — keep lab infrastructure out of the public tree):
+#   SAGE50_VM_RG
+#   SAGE50_VM_NAME
+#   SAGE50_VM_SUBSCRIPTION
 set -euo pipefail
 
-RG="${SAGE50_VM_RG:-<SAGE50_VM_RG>}"
-VM="${SAGE50_VM_NAME:-<SAGE50_VM_NAME>}"
-# Pin the subscription. `az login` can leave a different one as default (the
-# signing-certificate subscription, in this account), and every call then fails
-# with AuthorizationFailed naming a subscription that has nothing to do with
-# this VM - which reads like an expired token rather than a wrong default.
-SUB="${SAGE50_VM_SUBSCRIPTION:-<SAGE50_VM_SUBSCRIPTION>}"
+: "${SAGE50_VM_RG:?Set SAGE50_VM_RG to the Azure resource group of the lab VM}"
+: "${SAGE50_VM_NAME:?Set SAGE50_VM_NAME to the Azure VM name}"
+: "${SAGE50_VM_SUBSCRIPTION:?Set SAGE50_VM_SUBSCRIPTION to the Azure subscription name or id}"
+
+RG="$SAGE50_VM_RG"
+VM="$SAGE50_VM_NAME"
+SUB="$SAGE50_VM_SUBSCRIPTION"
 
 [ $# -eq 1 ] || { echo "usage: $(basename "$0") <script.ps1>" >&2; exit 2; }
 [ -f "$1" ] || { echo "no such script: $1" >&2; exit 2; }

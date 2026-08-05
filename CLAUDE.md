@@ -31,15 +31,17 @@ runtime folder (`C:\Program Files (x86)\Sage\Peachtree\API`) holds only
 | `SDK poster.pdf` | Object-model poster |
 
 Sample code (`Basic SDK App`, `Lists Example`, `Payments`, `Receipts`,
-`WinFormExamples`, plus a COM set) is under
-`C:\Users\<SAGE50_SSH_USER>\Documents\Sage 50 2026.0 SDK\.NET Samples\Sample Code`.
+`WinFormExamples`, plus a COM set) is under the interactive user's Documents
+folder on the lab VM, e.g.
+`C:\Users\<WindowsUser>\Documents\Sage 50 2026.0 SDK\.NET Samples\Sample Code`.
 
-SSH works and is the quickest way to get at all of it — the same credentials
-`release-via-ssh.sh` uses:
+SSH works and is the quickest way to get at all of it — the same variables
+`release-via-ssh.sh` uses (`SAGE50_SSH_HOST`, `SAGE50_SSH_USER`,
+`SAGE50_SSH_KEY`):
 
 ```bash
-ssh -i ~/.ssh/<ssh-key-name> <SAGE50_SSH_USER>@<SAGE50_VM_HOST> 'powershell.exe -NoProfile -Command "..."'
-scp -i ~/.ssh/<ssh-key-name> "<SAGE50_SSH_USER>@<SAGE50_VM_HOST>:C:/Program Files (x86)/Sage/Sage 50 2026.0 SDK/Sage.Peachtree.API.XML" .
+ssh -i "$SAGE50_SSH_KEY" "$SAGE50_SSH_USER@$SAGE50_SSH_HOST" 'powershell.exe -NoProfile -Command "..."'
+scp -i "$SAGE50_SSH_KEY" "$SAGE50_SSH_USER@$SAGE50_SSH_HOST:C:/Program Files (x86)/Sage/Sage 50 2026.0 SDK/Sage.Peachtree.API.XML" .
 ```
 
 Both CHMs extract on macOS with `7z x file.chm -oout`; the reference topics are
@@ -76,8 +78,8 @@ to `C:\src\Sage50Connector\bin\Release\Sage50Connector.exe`.
 
 Do not run the executable directly through `az vm run-command`: that command
 runs as `SYSTEM`, while Sage authorization belongs to the interactive Windows
-user. Keep an RDP session open as the lab Windows user, then launch the connector from
-macOS with:
+user. Keep an RDP session open as the Windows user who will approve Sage, then
+launch the connector from macOS with:
 
 ```bash
 .claude/skills/sage50-iterate/scripts/vmrun.sh \
@@ -85,8 +87,9 @@ macOS with:
 ```
 
 `run.ps1` stops stale connector processes, registers `RutterSageLive` as an
-interactive-token scheduled task for the lab Windows user, starts it, waits for the
-connector to poll, and prints a redacted log excerpt. To stop it before
+interactive-token scheduled task for the lab Windows user
+(`SAGE50_WINDOWS_USER`, defaulting to the logged-on user), starts it, waits for
+the connector to poll, and prints a redacted log excerpt. To stop it before
 enqueuing another test batch:
 
 ```bash
@@ -119,7 +122,13 @@ Sage". Write a CRLF PowerShell file and pass it with `--scripts @file`; quoting
 inline is fragile.
 
 ```bash
-az vm run-command invoke -g <SAGE50_VM_RG> -n <SAGE50_VM_NAME> \
+# Prefer the wrapper, which supplies resource group / VM / subscription from env:
+#   SAGE50_VM_RG, SAGE50_VM_NAME, SAGE50_VM_SUBSCRIPTION
+.claude/skills/sage50-iterate/scripts/vmrun.sh /tmp/cmd.ps1
+
+# Or call az directly with those same values:
+az vm run-command invoke -g "$SAGE50_VM_RG" -n "$SAGE50_VM_NAME" \
+  --subscription "$SAGE50_VM_SUBSCRIPTION" \
   --command-id RunPowerShellScript --scripts @/tmp/cmd.ps1 -o tsv --query "value[0].message"
 ```
 
@@ -148,11 +157,13 @@ VM:
 .claude/skills/sage50-iterate/scripts/release-via-ssh.sh
 ```
 
-The script uses `~/.ssh/<ssh-key-name>`, signs with the Mac's current Azure CLI
+The script reads `SAGE50_SSH_HOST` / `SAGE50_SSH_USER` / `SAGE50_SSH_KEY` (and
+optional `SAGE50_SIGNING_*` overrides), signs with the Mac's current Azure CLI
 identity, writes immutable local artifacts under
 `artifacts/sage50-release-<git-sha>/`, returns both signed files to the VM, and
 verifies them with Windows Authenticode. It expects Jsign (`brew install jsign`)
-and an active `az login` on the Mac.
+and an active `az login` on the Mac. Do not commit hostnames, key paths, or
+subscription names into the public tree — keep them in your shell env.
 
 As an alternative, the complete release can run inside an interactive
 PowerShell session on the VM. Install the release tools there once:
@@ -169,11 +180,9 @@ az login
 .\.claude\skills\sage50-iterate\scripts\release.ps1
 ```
 
-`release.ps1` selects the `<SAGE50_SIGNING_SUBSCRIPTION>` subscription and uses:
-
-- endpoint `https://eus.codesigning.azure.net`
-- signing account `<SAGE50_SIGNING_ACCOUNT>`
-- certificate profile `<SAGE50_SIGNING_CERTIFICATE_PROFILE>`
+`release.ps1` takes the Azure Artifact Signing subscription, endpoint, account,
+and certificate profile as parameters (or `SAGE50_SIGNING_*` env vars). Defaults
+are empty so nothing internal is hard-coded in the public scripts.
 
 Both paths use the same fixed order: rebuild, sign `Sage50Connector.exe`, package
 the MSI without rebuilding project references, sign the MSI, verify both
@@ -307,8 +316,10 @@ connector remotely as the interactive user, register a scheduled task with an
 interactive-token principal — no password needed:
 
 ```powershell
+$windowsUser = $env:SAGE50_WINDOWS_USER
+if (-not $windowsUser) { $windowsUser = $env:USERNAME }
 $action = New-ScheduledTaskAction -Execute 'C:\src\Sage50Connector\bin\Release\Sage50Connector.exe'
-$principal = New-ScheduledTaskPrincipal -UserId $env:SAGE50_WINDOWS_USER -LogonType Interactive -RunLevel Highest
+$principal = New-ScheduledTaskPrincipal -UserId $windowsUser -LogonType Interactive -RunLevel Highest
 Register-ScheduledTask -TaskName RutterSageLive -Action $action -Principal $principal
 Start-ScheduledTask -TaskName RutterSageLive
 ```
@@ -629,8 +640,8 @@ is why accounts were the only entity that looked healthy.
 
 1. Run rutter-backend from the branch with the Sage 50 routes
    (`paperclip/RUT-29-re-setup-the-sage-50-integration`, `PORT=4007`), not main.
-2. `ngrok http --hostname=<your-ngrok-hostname> 4007` — the reserved hostname keeps
-   the connector config stable across restarts.
+2. `ngrok http 4007` (or a reserved hostname you control) so the connector can
+   reach the local backend across restarts without rewriting config each time.
 3. Point `ApiBaseUrl` at the ngrok URL.
 4. Enqueue jobs. The cursor matters:
    ```

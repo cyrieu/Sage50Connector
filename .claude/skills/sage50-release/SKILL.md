@@ -28,15 +28,18 @@ Confirm all of the following:
 
 - The working tree is clean and the intended commit is pushed to
   `origin/rutter/productionize-v1`.
-- SSH works with `~/.ssh/<ssh-key-name>` to `<SAGE50_SSH_USER>@<SAGE50_VM_HOST>`.
-  If SSH times out, the VM may be deallocated — start it first:
-  `az vm start -g <SAGE50_VM_RG> -n <SAGE50_VM_NAME>`.
+- Lab SSH env is set and works: `SAGE50_SSH_HOST`, `SAGE50_SSH_USER`,
+  `SAGE50_SSH_KEY`. If SSH times out, the VM may be deallocated — start it
+  first with `az vm start` using `SAGE50_VM_RG` / `SAGE50_VM_NAME` /
+  `SAGE50_VM_SUBSCRIPTION`.
+- Signing env is set: `SAGE50_SIGNING_SUBSCRIPTION`,
+  `SAGE50_SIGNING_ENDPOINT`, `SAGE50_SIGNING_ACCOUNT`,
+  `SAGE50_SIGNING_CERTIFICATE_PROFILE`.
 - `az`, `jsign`, `ssh`, `scp`, and `aws` are installed on the Mac.
-- The Mac's Azure CLI identity is authenticated and can use the
-  `<SAGE50_SIGNING_SUBSCRIPTION>` subscription.
-- AWS can write the public installer bucket with profile `<aws-profile>`
-  (default AWS session is often expired):
-  `AWS_PROFILE=<aws-profile> aws s3 ls s3://rutterpublicimages/ --region us-east-2`.
+- The Mac's Azure CLI identity is authenticated for the signing subscription.
+- AWS can write the public installer object (use whatever profile/credentials
+  your org uses for that bucket — do not commit profile names):
+  `aws s3 ls s3://rutterpublicimages/ --region us-east-2`.
 - No release directory already exists for the current commit. Never overwrite,
   rebuild, modify, or re-sign an existing release.
 
@@ -119,8 +122,8 @@ zip_path="$release_dir/Sage 50 Connector Installer.zip"
 rm -f "$zip_path"
 zip -j "$zip_path" "$msi"
 
-# <aws-profile> can write rutterpublicimages; default AWS login often cannot.
-AWS_PROFILE=<aws-profile> aws s3 cp "$zip_path" \
+# Use an AWS identity that can write the public installer bucket.
+aws s3 cp "$zip_path" \
   "s3://rutterpublicimages/Sage 50 Connector Installer.zip" \
   --region us-east-2 \
   --content-type application/zip \
