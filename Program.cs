@@ -59,6 +59,21 @@ namespace Sage50Connector
 
         [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
         public string end_date { get; set; }
+
+        /// <summary>
+        /// Exclusive upper bound for LastSavedAt (QBD-style multi-batch historical).
+        /// Deeper batches set this so they do not re-fetch the recent window.
+        /// </summary>
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public string updated_before { get; set; }
+
+        /// <summary>
+        /// When true (side refresh / deepest historical batch), rows with no
+        /// LastSavedAt are included. Recent historical windows set false so
+        /// untimestamped rows are delivered once in the deep batch.
+        /// </summary>
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public bool? include_missing_timestamps { get; set; }
     }
 
     public class VendorBody
@@ -746,7 +761,9 @@ namespace Sage50Connector
                         CompanyName,
                         job.parameters != null ? job.parameters.updated_at : null,
                         job.parameters != null ? job.parameters.start_date : null,
-                        job.parameters != null ? job.parameters.end_date : null);
+                        job.parameters != null ? job.parameters.end_date : null,
+                        job.parameters != null ? job.parameters.updated_before : null,
+                        job.parameters != null ? job.parameters.include_missing_timestamps : null);
                     allRecords = allRecords
                         .OrderBy(record => GetRecordId(record), StringComparer.Ordinal)
                         .ToList();
@@ -928,9 +945,15 @@ namespace Sage50Connector
             string companyName,
             string updatedAt,
             string startDate = null,
-            string endDate = null)
+            string endDate = null,
+            string updatedBefore = null,
+            bool? includeMissingTimestamps = null)
         {
+            // Default true preserves side-refresh over-fetch for untimestamped rows.
+            bool includeMissing = includeMissingTimestamps ?? true;
             WriteToFile(DateTime.Now + $": Fetching {entity} data for company: {companyName} with updated_at: {updatedAt}"
+                + (updatedBefore != null ? $", updated_before: {updatedBefore}" : "")
+                + $", include_missing_timestamps: {includeMissing}"
                 + (startDate != null || endDate != null
                     ? $", date window [{startDate ?? ".."}..{endDate ?? ".."}]"
                     : ""));
@@ -939,7 +962,7 @@ namespace Sage50Connector
             switch (entity)
             {
                 case "VENDORS":
-                    var vendors = Sage50Repository.Instance.GetVendors(companyName, updatedAt);
+                    var vendors = Sage50Repository.Instance.GetVendors(companyName, updatedAt, updatedBefore, includeMissing);
                     WriteToFile(DateTime.Now + $": Retrieved {vendors.Count} vendors from Sage 50 before filtering.");
                     data = vendors.Cast<object>().ToList();
                     break;
@@ -956,7 +979,7 @@ namespace Sage50Connector
                     data = accounts;
                     break;
                 case "CUSTOMERS":
-                    var customers = Sage50Repository.Instance.GetCustomers(companyName, updatedAt);
+                    var customers = Sage50Repository.Instance.GetCustomers(companyName, updatedAt, updatedBefore, includeMissing);
                     WriteToFile(DateTime.Now + $": Retrieved {customers.Count} customers from Sage 50.");
                     data = customers.Cast<object>().ToList();
                     break;
@@ -970,27 +993,27 @@ namespace Sage50Connector
                         : new List<object> { companyInfo };
                     break;
                 case "JOURNAL_ENTRIES":
-                    var journalEntries = Sage50Repository.Instance.GetJournalEntries(companyName, updatedAt);
+                    var journalEntries = Sage50Repository.Instance.GetJournalEntries(companyName, updatedAt, updatedBefore, includeMissing);
                     WriteToFile(DateTime.Now + $": Retrieved {journalEntries.Count} journal entries from Sage 50.");
                     data = journalEntries.Cast<object>().ToList();
                     break;
                 case "INVOICES":
-                    var invoices = Sage50Repository.Instance.GetInvoices(companyName, updatedAt);
+                    var invoices = Sage50Repository.Instance.GetInvoices(companyName, updatedAt, updatedBefore, includeMissing);
                     WriteToFile(DateTime.Now + $": Retrieved {invoices.Count} invoices from Sage 50.");
                     data = invoices.Cast<object>().ToList();
                     break;
                 case "BILLS":
-                    var bills = Sage50Repository.Instance.GetBills(companyName, updatedAt);
+                    var bills = Sage50Repository.Instance.GetBills(companyName, updatedAt, updatedBefore, includeMissing);
                     WriteToFile(DateTime.Now + $": Retrieved {bills.Count} bills from Sage 50.");
                     data = bills.Cast<object>().ToList();
                     break;
                 case "EXPENSES":
-                    var expenses = Sage50Repository.Instance.GetExpenses(companyName, updatedAt);
+                    var expenses = Sage50Repository.Instance.GetExpenses(companyName, updatedAt, updatedBefore, includeMissing);
                     WriteToFile(DateTime.Now + $": Retrieved {expenses.Count} payments from Sage 50.");
                     data = expenses.Cast<object>().ToList();
                     break;
                 case "INVOICE_PAYMENTS":
-                    var invoicePayments = Sage50Repository.Instance.GetInvoicePayments(companyName, updatedAt);
+                    var invoicePayments = Sage50Repository.Instance.GetInvoicePayments(companyName, updatedAt, updatedBefore, includeMissing);
                     WriteToFile(DateTime.Now + $": Retrieved {invoicePayments.Count} receipts from Sage 50.");
                     data = invoicePayments.Cast<object>().ToList();
                     break;

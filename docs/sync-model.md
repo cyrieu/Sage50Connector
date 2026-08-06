@@ -9,11 +9,17 @@ are generated.
 ## What happens today (post sync-OS work)
 
 ```
+complete-setup / link-verify recovery
+  └─ enqueueSage50HistoricalSyncJobs (QBD-style multi-batch)
+       Batch 0 (ready): foundation full + temporal LastSavedAt ≥ now−12m
+       Batch 1 (historical): temporal now−12m > LastSavedAt ≥ epoch
+         (updated_before bound; untimestamped rows only in deepest batch)
+  ⋮
 refresh scheduler (side or full)
   └─ sage_50 sync/config.ts → buildSage50ListFetchStrategy.fetcher()
-       • after = fetchMetadata.after.value
+       • after / before from fetchMetadata
        • INSERT desktop_platform_jobs (ENQUEUED, priority by entity stage,
-         parameters={updated_at, limit})
+         parameters={updated_at, updated_before?, limit})
        • does NOT open/complete RefreshEntityRun (asyncDesktopCompletion)
        • return { data: [], nextCursor: null }   ← enqueue succeeded only
   ⋮  minutes later
@@ -26,6 +32,9 @@ connector poll → selectNextJob (priority ASC, stage-gated) → job served
        • absent → completeRun + job COMPLETED + lifecycle
        • error_message → job FAILED, run left incomplete (cutoff does not advance)
 ```
+
+**Ready vs historical (QBD-like):** batch 0 complete → `isReady` + side refresh +
+INITIAL_UPDATE. All batches complete → `isHistoricalReady`.
 
 The incremental cutoff comes from `getEntityLastCompleted`
 (`src/genericWorker/utils/lastupdated/getEntityLastCompleted.ts`): the
@@ -41,7 +50,8 @@ only on the final page — same meaning as cloud platforms.
 | 10 | COMPANY_INFO |
 | 20 | ACCOUNTS |
 | 30 | CUSTOMERS, VENDORS |
-| 40 | JOURNAL_ENTRIES, INVOICES, BILLS, EXPENSES |
+| 40 | JOURNAL_ENTRIES, INVOICES, BILLS, EXPENSES (historical batch 0) |
+| 50 | same temporal entities, historical batch 1 (deeper) |
 
 `selectNextJob` orders by `(priority ASC, updatedAt ASC)` and will not start an
 enqueued job while any unfinished job has a **lower** priority. Multi-page jobs

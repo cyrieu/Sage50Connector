@@ -195,29 +195,61 @@ namespace Sage50Connector.Helpers
         }
 
         /// <summary>
-        /// Incremental-fetch predicate. A null nullable compares false against any
-        /// bound in C#, so filtering on LastSavedAt alone drops every record Sage
-        /// never timestamped - permanently, since no later cutoff brings them back.
-        /// When Sage cannot say when a record changed, include it and let Rutter
-        /// dedupe on the primary key.
+        /// Modified-time window for QBD-style historical batches and incremental
+        /// side refresh.
+        ///
+        /// - after: inclusive lower bound (null = no lower bound)
+        /// - before: exclusive upper bound (null = no upper bound)
+        /// - includeMissingTimestamps: when false, rows with no LastSavedAt are
+        ///   dropped (recent historical batch); when true they are included so
+        ///   side refresh / deepest historical batch still delivers them.
         /// </summary>
-        private static bool ChangedSince(DateTime? lastSavedAt, DateTime? cutoff)
+        private static bool InModifiedWindow(
+            DateTime? lastSavedAt,
+            DateTime? after,
+            DateTime? before,
+            bool includeMissingTimestamps)
         {
-            if (cutoff == null) return true;
-            if (!HasTimestamp(lastSavedAt)) return true;
-            return lastSavedAt >= cutoff;
+            if (!HasTimestamp(lastSavedAt))
+            {
+                return includeMissingTimestamps;
+            }
+            if (after != null && lastSavedAt < after)
+            {
+                return false;
+            }
+            if (before != null && lastSavedAt >= before)
+            {
+                return false;
+            }
+            return true;
         }
 
-        private static void LogFilterOutcome(string entity, int total, int withoutTimestamp, int returned, DateTime? cutoff)
+        /// <summary>Backward-compatible alias used by callers that only have after.</summary>
+        private static bool ChangedSince(DateTime? lastSavedAt, DateTime? cutoff)
+        {
+            return InModifiedWindow(lastSavedAt, cutoff, null, includeMissingTimestamps: true);
+        }
+
+        private static void LogFilterOutcome(
+            string entity,
+            int total,
+            int withoutTimestamp,
+            int returned,
+            DateTime? after,
+            DateTime? before = null,
+            bool includeMissing = true)
         {
             global::Sage50Connector.Program.WriteToFile(
                 string.Format(
-                    "{0}: Sage returned {1}; {2} had no LastSavedAt; {3} passed the updated_at cutoff ({4}).",
+                    "{0}: Sage returned {1}; {2} had no LastSavedAt; {3} passed window after={4} before={5} includeMissing={6}.",
                     entity,
                     total,
                     withoutTimestamp,
                     returned,
-                    cutoff.HasValue ? cutoff.Value.ToString("o") : "none"
+                    after.HasValue ? after.Value.ToString("o") : "none",
+                    before.HasValue ? before.Value.ToString("o") : "none",
+                    includeMissing
                 )
             );
         }
@@ -406,7 +438,11 @@ namespace Sage50Connector.Helpers
         /// General journal entries. The only entity here whose lines are the
         /// whole point — the header carries no party at all.
         /// </summary>
-        public List<JournalEntryBody> GetJournalEntries(string companyName, string updatedAt = null)
+        public List<JournalEntryBody> GetJournalEntries(
+            string companyName,
+            string updatedAt = null,
+            string updatedBefore = null,
+            bool includeMissingTimestamps = true)
         {
             var results = new List<JournalEntryBody>();
             EnsureCompanyConnected(companyName);
@@ -415,7 +451,8 @@ namespace Sage50Connector.Helpers
                 return results;
             }
 
-            DateTime? cutoff = ParseCutoff(updatedAt);
+            DateTime? after = ParseCutoff(updatedAt);
+            DateTime? before = ParseCutoff(updatedBefore);
             ReferenceIndex index = BuildReferenceIndex(accounts: true, customers: false, vendors: false);
 
             var entries = CompanyManager.Instance.CurrentCompany.Factories.GeneralJournalEntryFactory.List();
@@ -430,7 +467,7 @@ namespace Sage50Connector.Helpers
                 {
                     withoutTimestamp++;
                 }
-                if (!ChangedSince(entry.LastSavedAt, cutoff))
+                if (!InModifiedWindow(entry.LastSavedAt, after, before, includeMissingTimestamps))
                 {
                     continue;
                 }
@@ -458,12 +495,16 @@ namespace Sage50Connector.Helpers
                 results.Add(body);
             }
 
-            LogFilterOutcome("JOURNAL_ENTRIES", total, withoutTimestamp, results.Count, cutoff);
+            LogFilterOutcome("JOURNAL_ENTRIES", total, withoutTimestamp, results.Count, after, before, includeMissingTimestamps);
             return results;
         }
 
         /// <summary>Sales invoices — accounts receivable.</summary>
-        public List<InvoiceBody> GetInvoices(string companyName, string updatedAt = null)
+        public List<InvoiceBody> GetInvoices(
+            string companyName,
+            string updatedAt = null,
+            string updatedBefore = null,
+            bool includeMissingTimestamps = true)
         {
             var results = new List<InvoiceBody>();
             EnsureCompanyConnected(companyName);
@@ -472,7 +513,8 @@ namespace Sage50Connector.Helpers
                 return results;
             }
 
-            DateTime? cutoff = ParseCutoff(updatedAt);
+            DateTime? after = ParseCutoff(updatedAt);
+            DateTime? before = ParseCutoff(updatedBefore);
             ReferenceIndex index = BuildReferenceIndex(accounts: true, customers: true, vendors: false);
 
             var invoices = CompanyManager.Instance.CurrentCompany.Factories.SalesInvoiceFactory.List();
@@ -487,7 +529,7 @@ namespace Sage50Connector.Helpers
                 {
                     withoutTimestamp++;
                 }
-                if (!ChangedSince(invoice.LastSavedAt, cutoff))
+                if (!InModifiedWindow(invoice.LastSavedAt, after, before, includeMissingTimestamps))
                 {
                     continue;
                 }
@@ -568,12 +610,16 @@ namespace Sage50Connector.Helpers
                 results.Add(body);
             }
 
-            LogFilterOutcome("INVOICES", total, withoutTimestamp, results.Count, cutoff);
+            LogFilterOutcome("INVOICES", total, withoutTimestamp, results.Count, after, before, includeMissingTimestamps);
             return results;
         }
 
         /// <summary>Purchase invoices — accounts payable.</summary>
-        public List<BillBody> GetBills(string companyName, string updatedAt = null)
+        public List<BillBody> GetBills(
+            string companyName,
+            string updatedAt = null,
+            string updatedBefore = null,
+            bool includeMissingTimestamps = true)
         {
             var results = new List<BillBody>();
             EnsureCompanyConnected(companyName);
@@ -582,7 +628,8 @@ namespace Sage50Connector.Helpers
                 return results;
             }
 
-            DateTime? cutoff = ParseCutoff(updatedAt);
+            DateTime? after = ParseCutoff(updatedAt);
+            DateTime? before = ParseCutoff(updatedBefore);
             ReferenceIndex index = BuildReferenceIndex(accounts: true, customers: false, vendors: true);
 
             var bills = CompanyManager.Instance.CurrentCompany.Factories.PurchaseInvoiceFactory.List();
@@ -597,7 +644,7 @@ namespace Sage50Connector.Helpers
                 {
                     withoutTimestamp++;
                 }
-                if (!ChangedSince(bill.LastSavedAt, cutoff))
+                if (!InModifiedWindow(bill.LastSavedAt, after, before, includeMissingTimestamps))
                 {
                     continue;
                 }
@@ -658,7 +705,7 @@ namespace Sage50Connector.Helpers
                 results.Add(body);
             }
 
-            LogFilterOutcome("BILLS", total, withoutTimestamp, results.Count, cutoff);
+            LogFilterOutcome("BILLS", total, withoutTimestamp, results.Count, after, before, includeMissingTimestamps);
             return results;
         }
 
@@ -667,7 +714,11 @@ namespace Sage50Connector.Helpers
         /// both line collections are reported: expense lines hit GL accounts
         /// directly, invoice lines settle bills that already exist.
         /// </summary>
-        public List<ExpenseBody> GetExpenses(string companyName, string updatedAt = null)
+        public List<ExpenseBody> GetExpenses(
+            string companyName,
+            string updatedAt = null,
+            string updatedBefore = null,
+            bool includeMissingTimestamps = true)
         {
             var results = new List<ExpenseBody>();
             EnsureCompanyConnected(companyName);
@@ -676,7 +727,8 @@ namespace Sage50Connector.Helpers
                 return results;
             }
 
-            DateTime? cutoff = ParseCutoff(updatedAt);
+            DateTime? after = ParseCutoff(updatedAt);
+            DateTime? before = ParseCutoff(updatedBefore);
             ReferenceIndex index = BuildReferenceIndex(accounts: true, customers: false, vendors: true);
 
             var payments = CompanyManager.Instance.CurrentCompany.Factories.PaymentFactory.List();
@@ -693,7 +745,7 @@ namespace Sage50Connector.Helpers
                 {
                     withoutTimestamp++;
                 }
-                if (!ChangedSince(payment.LastSavedAt, cutoff))
+                if (!InModifiedWindow(payment.LastSavedAt, after, before, includeMissingTimestamps))
                 {
                     continue;
                 }
@@ -749,7 +801,7 @@ namespace Sage50Connector.Helpers
                 results.Add(body);
             }
 
-            LogFilterOutcome("EXPENSES", total, withoutTimestamp, results.Count, cutoff);
+            LogFilterOutcome("EXPENSES", total, withoutTimestamp, results.Count, after, before, includeMissingTimestamps);
             global::Sage50Connector.Program.WriteToFile(
                 "EXPENSES: " + expenseLineCount + " expense line(s) and "
                     + invoiceLineCount + " applied-to-bill line(s) across "
@@ -764,7 +816,11 @@ namespace Sage50Connector.Helpers
         /// Both collections are reported so a mapper can keep invoice payments
         /// (linked invoices) without inventing sales-receipt handling.
         /// </summary>
-        public List<InvoicePaymentBody> GetInvoicePayments(string companyName, string updatedAt = null)
+        public List<InvoicePaymentBody> GetInvoicePayments(
+            string companyName,
+            string updatedAt = null,
+            string updatedBefore = null,
+            bool includeMissingTimestamps = true)
         {
             var results = new List<InvoicePaymentBody>();
             EnsureCompanyConnected(companyName);
@@ -773,7 +829,8 @@ namespace Sage50Connector.Helpers
                 return results;
             }
 
-            DateTime? cutoff = ParseCutoff(updatedAt);
+            DateTime? after = ParseCutoff(updatedAt);
+            DateTime? before = ParseCutoff(updatedBefore);
             ReferenceIndex index = BuildReferenceIndex(accounts: true, customers: true, vendors: false);
 
             var receipts = CompanyManager.Instance.CurrentCompany.Factories.ReceiptFactory.List();
@@ -790,7 +847,7 @@ namespace Sage50Connector.Helpers
                 {
                     withoutTimestamp++;
                 }
-                if (!ChangedSince(receipt.LastSavedAt, cutoff))
+                if (!InModifiedWindow(receipt.LastSavedAt, after, before, includeMissingTimestamps))
                 {
                     continue;
                 }
@@ -850,7 +907,7 @@ namespace Sage50Connector.Helpers
                 results.Add(body);
             }
 
-            LogFilterOutcome("INVOICE_PAYMENTS", total, withoutTimestamp, results.Count, cutoff);
+            LogFilterOutcome("INVOICE_PAYMENTS", total, withoutTimestamp, results.Count, after, before, includeMissingTimestamps);
             global::Sage50Connector.Program.WriteToFile(
                 "INVOICE_PAYMENTS: " + invoiceLineCount + " applied-to-invoice line(s) and "
                     + salesLineCount + " sales line(s) across "
@@ -907,7 +964,11 @@ namespace Sage50Connector.Helpers
 
         #endregion
 
-        public List<ChartofVendor> GetVendors(string companyName, string updatedAt = null)
+        public List<ChartofVendor> GetVendors(
+            string companyName,
+            string updatedAt = null,
+            string updatedBefore = null,
+            bool includeMissingTimestamps = true)
         {
             EnsureCompanyConnected(companyName);
             if (!CurrentCompanyDesconnected)
@@ -915,11 +976,8 @@ namespace Sage50Connector.Helpers
                 VendorList vendorList = CompanyManager.Instance.CurrentCompany.Factories.VendorFactory.List();
                 vendorList.Load();
 
-                DateTime? updatedAtDate = null;
-                if (!string.IsNullOrEmpty(updatedAt))
-                {
-                    updatedAtDate = DateTime.Parse(updatedAt);
-                }
+                DateTime? after = ParseCutoff(updatedAt);
+                DateTime? before = ParseCutoff(updatedBefore);
 
                 int totalFromSage = 0;
                 int withoutTimestamp = 0;
@@ -932,7 +990,7 @@ namespace Sage50Connector.Helpers
                         withoutTimestamp++;
                     }
 
-                    if (ChangedSince(vendor.LastSavedAt, updatedAtDate))
+                    if (InModifiedWindow(vendor.LastSavedAt, after, before, includeMissingTimestamps))
                     {
                         chartofVendors.Add(new ChartofVendor
                         {
@@ -947,13 +1005,17 @@ namespace Sage50Connector.Helpers
                     }
                 }
 
-                LogFilterOutcome("VENDORS", totalFromSage, withoutTimestamp, chartofVendors.Count, updatedAtDate);
+                LogFilterOutcome("VENDORS", totalFromSage, withoutTimestamp, chartofVendors.Count, after, before, includeMissingTimestamps);
                 return chartofVendors;
             }
             return new List<ChartofVendor>();
         }
 
-        public List<ChartofCustomer> GetCustomers(string companyName, string updatedAt = null)
+        public List<ChartofCustomer> GetCustomers(
+            string companyName,
+            string updatedAt = null,
+            string updatedBefore = null,
+            bool includeMissingTimestamps = true)
         {
             EnsureCompanyConnected(companyName);
             if (!CurrentCompanyDesconnected)
@@ -961,11 +1023,8 @@ namespace Sage50Connector.Helpers
                 CustomerList customerList = CompanyManager.Instance.CurrentCompany.Factories.CustomerFactory.List();
                 customerList.Load();
 
-                DateTime? updatedAtDate = null;
-                if (!string.IsNullOrEmpty(updatedAt))
-                {
-                    updatedAtDate = DateTime.Parse(updatedAt);
-                }
+                DateTime? after = ParseCutoff(updatedAt);
+                DateTime? before = ParseCutoff(updatedBefore);
 
                 int totalFromSage = 0;
                 int withoutTimestamp = 0;
@@ -978,7 +1037,7 @@ namespace Sage50Connector.Helpers
                         withoutTimestamp++;
                     }
 
-                    if (ChangedSince(customer.LastSavedAt, updatedAtDate))
+                    if (InModifiedWindow(customer.LastSavedAt, after, before, includeMissingTimestamps))
                     {
                         chartofCustomers.Add(new ChartofCustomer
                         {
@@ -993,7 +1052,7 @@ namespace Sage50Connector.Helpers
                     }
                 }
 
-                LogFilterOutcome("CUSTOMERS", totalFromSage, withoutTimestamp, chartofCustomers.Count, updatedAtDate);
+                LogFilterOutcome("CUSTOMERS", totalFromSage, withoutTimestamp, chartofCustomers.Count, after, before, includeMissingTimestamps);
                 return chartofCustomers;
             }
             return new List<ChartofCustomer>();
