@@ -149,6 +149,21 @@ Notes:
   change the env to this default and upload here). Do not leave Link pointing at
   a stale object after a customer release.
 
+## Publish versioned MSI + update manifest (assisted auto-update)
+
+After `SIGNED RELEASE OK`, also publish the **versioned** MSI and
+`sage50-connector/release.json` so in-app **Check for updates** can find them.
+See `docs/updates.md` for the full script. Minimum:
+
+1. Bump `Version.props` + `AssemblyInfo.cs` **before** the release build.
+2. Upload `RutterSage50ConnectorSetup-<version>.msi` (immutable key).
+3. Upload `sage50-connector/release.json` with `version`, `msi_url`, `sha256`,
+   `min_version`, `requires_sage_reapproval: true`.
+4. Still refresh the Link zip at `Sage 50 Connector Installer.zip`.
+
+Silent auto-update is not supported; the customer must re-approve in Sage after
+any real EXE change.
+
 ## Report
 
 Report the source commit, absolute artifact directory, both SHA-256 checksums

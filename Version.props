@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Single source of truth for customer-facing connector version.
+  Bump this for every customer release, then rebuild EXE + MSI and publish
+  the release manifest (see docs/updates.md).
+
+  AssemblyVersion uses four parts (1.1.0.0).
+  WiX ProductVersion uses three parts (1.1.0) — required for MajorUpgrade.
+-->
+<Project>
+  <PropertyGroup>
+    <Sage50ConnectorVersion>1.1.0.0</Sage50ConnectorVersion>
+    <Sage50ConnectorMsiVersion>1.1.0</Sage50ConnectorMsiVersion>
+  </PropertyGroup>
+</Project>

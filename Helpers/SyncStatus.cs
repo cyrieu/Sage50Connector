@@ -57,6 +57,9 @@ namespace Sage50Connector.Helpers
         private DateTime? lastSyncAt;
         private string companyName;
         private SageAuthorizationState sageAuthorization = SageAuthorizationState.Unknown;
+        private UpdateAvailability updateAvailability = UpdateAvailability.Unknown;
+        private string updateMessage;
+        private string availableVersion;
 
         public ConnectorState State { get { lock (gate) { return state; } } }
         public string Message { get { lock (gate) { return message; } } }
@@ -66,6 +69,9 @@ namespace Sage50Connector.Helpers
         public DateTime? LastSyncAt { get { lock (gate) { return lastSyncAt; } } }
         public string CompanyName { get { lock (gate) { return companyName; } } }
         public SageAuthorizationState SageAuthorization { get { lock (gate) { return sageAuthorization; } } }
+        public UpdateAvailability UpdateAvailability { get { lock (gate) { return updateAvailability; } } }
+        public string UpdateMessage { get { lock (gate) { return updateMessage; } } }
+        public string AvailableVersion { get { lock (gate) { return availableVersion; } } }
 
         public List<EntityStat> Entities
         {
@@ -89,6 +95,49 @@ namespace Sage50Connector.Helpers
         public void SetCompany(string company)
         {
             lock (gate) { companyName = company; }
+            Raise();
+        }
+
+        public void SetUpdateAvailability(UpdateCheckResult result)
+        {
+            if (result == null) return;
+            lock (gate)
+            {
+                updateAvailability = result.Availability;
+                availableVersion = result.Release != null ? result.Release.Version : null;
+                switch (result.Availability)
+                {
+                    case UpdateAvailability.OptionalUpdate:
+                        updateMessage = "Update " + (availableVersion ?? "")
+                            + " is available. Installing requires re-approval in Sage 50.";
+                        break;
+                    case UpdateAvailability.RequiredUpdate:
+                        updateMessage = "Update " + (availableVersion ?? "")
+                            + " is required. Sync may be limited until you upgrade and re-approve in Sage.";
+                        break;
+                    case UpdateAvailability.UpToDate:
+                        updateMessage = "Connector is up to date (" + AppVersion.Display + ").";
+                        break;
+                    case UpdateAvailability.CheckFailed:
+                        updateMessage = "Could not check for updates"
+                            + (string.IsNullOrEmpty(result.ErrorMessage)
+                                ? "."
+                                : ": " + result.ErrorMessage);
+                        break;
+                    default:
+                        updateMessage = null;
+                        break;
+                }
+            }
+            Raise();
+        }
+
+        public void SetUpdateProgress(string text)
+        {
+            lock (gate)
+            {
+                updateMessage = text;
+            }
             Raise();
         }
 

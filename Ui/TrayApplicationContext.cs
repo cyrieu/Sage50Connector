@@ -20,7 +20,9 @@ namespace Sage50Connector.Ui
         private readonly NotifyIcon trayIcon;
         private StatusForm statusForm;
         private bool authBalloonShown;
+        private bool updateBalloonShown;
         private readonly ManualResetEventSlim syncNowSignal = new ManualResetEventSlim(false);
+        private string apiBaseUrlForUpdates = ConnectorConfig.DefaultApiBaseUrl;
 
         public TrayApplicationContext()
         {
@@ -34,6 +36,7 @@ namespace Sage50Connector.Ui
             ContextMenuStrip menu = new ContextMenuStrip();
             menu.Items.Add("Open " + RuntimeEnvironment.DisplayName, null, (s, e) => ShowStatus());
             menu.Items.Add("Sync now", null, (s, e) => RequestSyncNow());
+            menu.Items.Add("Check for updates…", null, async (s, e) => await CheckForUpdatesInteractiveAsync());
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Exit", null, (s, e) => ExitConnector());
             trayIcon.ContextMenuStrip = menu;
@@ -72,6 +75,122 @@ namespace Sage50Connector.Ui
 
             ListenForShowRequests();
             ListenForQuitRequests();
+
+            // Quiet daily check; never auto-installs (Sage re-approval required).
+            Task.Run(() => BackgroundUpdateLoop());
+        }
+
+        /// <summary>Called from Program once config is loaded so checks hit the right API host.</summary>
+        internal void SetApiBaseUrl(string apiBaseUrl)
+        {
+            if (!string.IsNullOrWhiteSpace(apiBaseUrl))
+            {
+                apiBaseUrlForUpdates = apiBaseUrl.Trim();
+            }
+        }
+
+        private async Task BackgroundUpdateLoop()
+        {
+            // Delay so first boot / setup is not competing with config + Sage probe.
+            await Task.Delay(TimeSpan.FromMinutes(2)).ConfigureAwait(false);
+            while (true)
+            {
+                try
+                {
+                    UpdateCheckResult result = await UpdateService
+                        .CheckForUpdatesAsync(apiBaseUrlForUpdates, force: false)
+                        .ConfigureAwait(false);
+                    if (result != null && result.HasUpdate && !updateBalloonShown)
+                    {
+                        updateBalloonShown = true;
+                        string title = result.IsForced
+                            ? "Connector update required"
+                            : "Connector update available";
+                        string body = "Version " + (result.Release != null ? result.Release.Version : "")
+                            + " is available. Open the tray menu → Check for updates. "
+                            + "Installing requires re-approval in Sage 50.";
+                        try
+                        {
+                            trayIcon.ShowBalloonTip(12000, title, body, ToolTipIcon.Info);
+                        }
+                        catch { }
+                    }
+                    if (result != null && result.Availability == UpdateAvailability.UpToDate)
+                    {
+                        updateBalloonShown = false;
+                    }
+                }
+                catch { /* never crash the tray for update checks */ }
+
+                await Task.Delay(TimeSpan.FromHours(6)).ConfigureAwait(false);
+            }
+        }
+
+        private async Task CheckForUpdatesInteractiveAsync()
+        {
+            try
+            {
+                UpdateCheckResult result = await UpdateService
+                    .CheckForUpdatesAsync(apiBaseUrlForUpdates, force: true)
+                    .ConfigureAwait(true);
+
+                if (result.Availability == UpdateAvailability.CheckFailed)
+                {
+                    MessageBox.Show(
+                        "Could not check for updates.\r\n\r\n" + (result.ErrorMessage ?? "Unknown error"),
+                        RuntimeEnvironment.DisplayName,
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+                    return;
+                }
+
+                if (!result.HasUpdate)
+                {
+                    MessageBox.Show(
+                        "You are running the latest connector (" + AppVersion.Display + ").",
+                        RuntimeEnvironment.DisplayName,
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information);
+                    return;
+                }
+
+                string notes = result.Release != null ? result.Release.Notes : null;
+                string msg =
+                    "A new version of the Rutter Sage 50 Connector is available.\r\n\r\n"
+                    + "Current:  " + AppVersion.Display + "\r\n"
+                    + "Available: " + (result.Release != null ? result.Release.Version : "?") + "\r\n\r\n"
+                    + "Installing a new version changes the executable identity. "
+                    + "Sage 50 will require you to re-approve access (File → Close Company, "
+                    + "reopen company, Always Allow Access).\r\n\r\n"
+                    + (string.IsNullOrWhiteSpace(notes) ? "" : notes + "\r\n\r\n")
+                    + (result.IsForced
+                        ? "This update is required.\r\n\r\n"
+                        : "")
+                    + "Download and install now? Windows may prompt for administrator permission.";
+
+                DialogResult answer = MessageBox.Show(
+                    msg,
+                    result.IsForced ? "Update required" : "Update available",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question);
+                if (answer != DialogResult.Yes) return;
+
+                await UpdateService.ApplyUpdateAsync(
+                    result.Release,
+                    line => Program.WriteToFile(DateTime.Now + ": " + line)).ConfigureAwait(true);
+
+                // Give the elevated script a moment to start, then exit so files unlock.
+                await Task.Delay(1500).ConfigureAwait(true);
+                ExitConnector();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    "Update failed: " + ex.Message,
+                    RuntimeEnvironment.DisplayName,
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
         }
 
         /// <summary>
@@ -110,6 +229,16 @@ namespace Sage50Connector.Ui
             if (s.State == ConnectorState.Syncing || s.State == ConnectorState.Idle)
             {
                 authBalloonShown = false;
+            }
+
+            if (s.UpdateAvailability == UpdateAvailability.OptionalUpdate
+                || s.UpdateAvailability == UpdateAvailability.RequiredUpdate)
+            {
+                // Keep tip short; full detail is in Check for updates / status form.
+                string prefix = RuntimeEnvironment.TrayStatusPrefix;
+                string updateTip = prefix + "Update " + (s.AvailableVersion ?? "") + " available";
+                if (updateTip.Length > 60) updateTip = updateTip.Substring(0, 57) + "…";
+                try { trayIcon.Text = updateTip; } catch { }
             }
         }
 

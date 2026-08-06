@@ -247,7 +247,8 @@ namespace Sage50Connector
                     + RuntimeEnvironment.ModeName
                     + "; ExecutablePath='"
                     + RuntimeEnvironment.ExecutablePath
-                    + "'"
+                    + "'; ConnectorVersion="
+                    + AppVersion.Display
             );
 
             try
