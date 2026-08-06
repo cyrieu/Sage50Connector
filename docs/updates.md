@@ -50,55 +50,38 @@ Published JSON (example):
 2. Fallback:
    `https://rutterpublicimages.s3.us-east-2.amazonaws.com/sage50-connector/release.json`
 
-### Publishing after a signed release
+### Publishing (automated)
 
-After `release-via-ssh.sh` prints `SIGNED RELEASE OK`:
+`release-via-ssh.sh` calls `publish-release.sh` after signing unless
+`SAGE50_SKIP_PUBLISH=1`. That uploads:
+
+| Object | Purpose |
+|---|---|
+| `sage50-connector/RutterSage50ConnectorSetup-<ver>.msi` | Immutable updater target |
+| `sage50-connector/release.json` | Manifest for Check for updates |
+| `Sage 50 Connector Installer.zip` | Link first-install download |
 
 ```bash
-release_dir=artifacts/sage50-release-<git-sha>
-ver=1.1.0   # must match Version.props / MSI ProductVersion
-msi="$release_dir/RutterSage50ConnectorSetup.msi"
-sha=$(shasum -a 256 "$msi" | awk '{print $1}')
+# Full customer release (sign + publish)
+export SAGE50_RELEASE_NOTES='What customers see in the update dialog.'
+.claude/skills/sage50-iterate/scripts/release-via-ssh.sh
 
-# Immutable versioned MSI (preferred for in-app updater)
-aws s3 cp "$msi" \
-  "s3://rutterpublicimages/sage50-connector/RutterSage50ConnectorSetup-${ver}.msi" \
-  --region us-east-2 \
-  --content-type application/octet-stream \
-  --metadata "git-sha=<sha>,version=${ver}"
-
-# Manifest (updater reads this)
-cat > /tmp/sage50-release.json <<EOF
-{
-  "version": "${ver}",
-  "min_version": "1.0.0",
-  "msi_url": "https://rutterpublicimages.s3.us-east-2.amazonaws.com/sage50-connector/RutterSage50ConnectorSetup-${ver}.msi",
-  "sha256": "${sha}",
-  "released_at": "$(date -u +%Y-%m-%d)",
-  "notes": "Describe the release for customers.",
-  "requires_sage_reapproval": true
-}
-EOF
-
-aws s3 cp /tmp/sage50-release.json \
-  "s3://rutterpublicimages/sage50-connector/release.json" \
-  --region us-east-2 \
-  --content-type application/json \
-  --cache-control "max-age=60"
-
-# Keep Link first-install zip in sync (latest MSI only)
-zip -j "$release_dir/Sage 50 Connector Installer.zip" "$msi"
-aws s3 cp "$release_dir/Sage 50 Connector Installer.zip" \
-  "s3://rutterpublicimages/Sage 50 Connector Installer.zip" \
-  --region us-east-2 \
-  --content-type application/zip
+# Sign only, publish later
+SAGE50_SKIP_PUBLISH=1 .claude/skills/sage50-iterate/scripts/release-via-ssh.sh
+.claude/skills/sage50-iterate/scripts/publish-release.sh \
+  artifacts/sage50-release-<short-sha>
 ```
 
-Backend env (optional override for the JSON body):
+Before releasing, bump `Version.props` **and** `Properties/AssemblyInfo.cs` to
+the same four-part assembly version (MSI uses the three-part
+`Sage50ConnectorMsiVersion`). The release script refuses to start if they
+disagree.
 
-- `SAGE_50_CONNECTOR_RELEASE_JSON` — raw JSON string for `GET /sage-50/connector-release`
-- If unset, backend **proxies** the public S3 `release.json` (or returns a
-  documented empty/up-to-date stub if fetch fails)
+Backend env (optional):
+
+- `SAGE_50_CONNECTOR_RELEASE_JSON` — raw JSON for `GET /sage-50/connector-release`
+- `SAGE_50_CONNECTOR_RELEASE_URL` — alternate upstream URL for the proxy
+- If unset, backend proxies the public S3 `release.json`
 
 ## In-app UX
 
