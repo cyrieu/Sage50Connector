@@ -1,6 +1,7 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+  <Import Project="Version.props" Condition="Exists('Version.props')" />
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
@@ -13,6 +14,8 @@
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
     <Deterministic>true</Deterministic>
     <TargetFrameworkProfile />
+    <!-- Informational; AssemblyInfo.cs must match Version.props for customer releases. -->
+    <Sage50ConnectorVersion Condition=" '$(Sage50ConnectorVersion)' == '' ">1.1.0.0</Sage50ConnectorVersion>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <!-- x86: Sage.Peachtree.API is an x86-only assembly; AnyCPU would BadImageFormat on load -->
@@ -60,8 +63,12 @@
   <ItemGroup>
     <Compile Include="Helpers\CompanyManager.cs" />
     <Compile Include="Helpers\ConnectorConfig.cs" />
+    <Compile Include="Helpers\JobIdListCache.cs" />
     <Compile Include="Helpers\ReferenceIndex.cs" />
     <Compile Include="Helpers\RuntimeEnvironment.cs" />
+    <Compile Include="Helpers\AppVersion.cs" />
+    <Compile Include="Helpers\ConnectorRelease.cs" />
+    <Compile Include="Helpers\UpdateService.cs" />
     <Compile Include="Helpers\Sage50Connector.cs" />
     <Compile Include="Helpers\Sage50Repository.cs" />
     <Compile Include="Helpers\SyncStatus.cs" />

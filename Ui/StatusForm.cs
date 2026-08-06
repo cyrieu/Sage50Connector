@@ -19,6 +19,8 @@ namespace Sage50Connector.Ui
         private readonly Label stateLabel = new Label();
         private readonly Label authorizationLabel = new Label();
         private readonly Label lastSyncLabel = new Label();
+        private readonly Label versionLabel = new Label();
+        private readonly Label updateLabel = new Label();
         private readonly ProgressBar progress = new ProgressBar();
         private readonly ListView entityList = new ListView();
         private readonly Panel authPanel = new Panel();
@@ -29,7 +31,7 @@ namespace Sage50Connector.Ui
         public StatusForm()
         {
             Text = RuntimeEnvironment.DisplayName;
-            ClientSize = new Size(470, 430);
+            ClientSize = new Size(470, 458);
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
             StartPosition = FormStartPosition.CenterScreen;
@@ -51,7 +53,15 @@ namespace Sage50Connector.Ui
             lastSyncLabel.SetBounds(14, 120, 440, 20);
             lastSyncLabel.ForeColor = SystemColors.GrayText;
 
-            entityList.SetBounds(14, 148, 440, 130);
+            versionLabel.SetBounds(14, 140, 440, 18);
+            versionLabel.ForeColor = SystemColors.GrayText;
+            versionLabel.Text = "Version " + AppVersion.Display
+                + (RuntimeEnvironment.IsInstalled ? "" : " (development build)");
+
+            updateLabel.SetBounds(14, 158, 440, 36);
+            updateLabel.ForeColor = SystemColors.GrayText;
+
+            entityList.SetBounds(14, 196, 440, 100);
             entityList.View = View.Details;
             entityList.FullRowSelect = true;
             entityList.HeaderStyle = ColumnHeaderStyle.Nonclickable;
@@ -61,7 +71,7 @@ namespace Sage50Connector.Ui
 
             BuildAuthPanel();
 
-            syncNowButton.SetBounds(14, 392, 100, 26);
+            syncNowButton.SetBounds(14, 418, 100, 26);
             syncNowButton.Text = "Sync now";
             syncNowButton.Click += (s, e) =>
             {
@@ -70,18 +80,19 @@ namespace Sage50Connector.Ui
             };
 
             Button logsButton = new Button();
-            logsButton.SetBounds(122, 392, 100, 26);
+            logsButton.SetBounds(122, 418, 100, 26);
             logsButton.Text = "Open logs";
             logsButton.Click += (s, e) => OpenLogFolder();
 
             Button closeButton = new Button();
-            closeButton.SetBounds(354, 392, 100, 26);
+            closeButton.SetBounds(354, 418, 100, 26);
             closeButton.Text = "Close";
             closeButton.Click += (s, e) => Hide();
 
             Controls.AddRange(new Control[]
             {
-                companyLabel, stateLabel, progress, authorizationLabel, lastSyncLabel, entityList,
+                companyLabel, stateLabel, progress, authorizationLabel, lastSyncLabel,
+                versionLabel, updateLabel, entityList,
                 authPanel, syncNowButton, logsButton, closeButton,
             });
 
@@ -107,7 +118,7 @@ namespace Sage50Connector.Ui
         /// </summary>
         private void BuildAuthPanel()
         {
-            authPanel.SetBounds(14, 286, 440, 96);
+            authPanel.SetBounds(14, 304, 440, 96);
             authPanel.BackColor = Color.FromArgb(255, 248, 225);
             authPanel.BorderStyle = BorderStyle.FixedSingle;
             authPanel.Visible = false;
@@ -208,6 +219,33 @@ namespace Sage50Connector.Ui
             lastSyncLabel.Text = s.LastSyncAt.HasValue
                 ? "Last synced " + s.LastSyncAt.Value.ToString("g")
                 : "Not synced yet";
+
+            versionLabel.Text = "Version " + AppVersion.Display
+                + (RuntimeEnvironment.IsInstalled ? "" : " (development build)");
+
+            if (!string.IsNullOrEmpty(s.UpdateMessage))
+            {
+                updateLabel.Text = s.UpdateMessage;
+                if (s.UpdateAvailability == UpdateAvailability.RequiredUpdate
+                    || s.UpdateAvailability == UpdateAvailability.OptionalUpdate)
+                {
+                    updateLabel.ForeColor = Color.FromArgb(146, 64, 14);
+                }
+                else if (s.UpdateAvailability == UpdateAvailability.CheckFailed)
+                {
+                    updateLabel.ForeColor = SystemColors.GrayText;
+                }
+                else
+                {
+                    updateLabel.ForeColor = Color.FromArgb(22, 101, 52);
+                }
+            }
+            else
+            {
+                updateLabel.Text = "Use the tray menu → Check for updates to install a newer build. "
+                    + "Updates always require re-approval in Sage 50.";
+                updateLabel.ForeColor = SystemColors.GrayText;
+            }
 
             entityList.BeginUpdate();
             entityList.Items.Clear();

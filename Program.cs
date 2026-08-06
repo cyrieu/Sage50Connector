@@ -52,6 +52,28 @@ namespace Sage50Connector
         /// <summary>The record an ID_FETCH, UPDATE or DELETE job targets.</summary>
         [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
         public string platform_id { get; set; }
+
+        /// <summary>Optional transaction date window (yyyy-MM-dd), inclusive.</summary>
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public string start_date { get; set; }
+
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public string end_date { get; set; }
+
+        /// <summary>
+        /// Exclusive upper bound for LastSavedAt (QBD-style multi-batch historical).
+        /// Deeper batches set this so they do not re-fetch the recent window.
+        /// </summary>
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public string updated_before { get; set; }
+
+        /// <summary>
+        /// When true (side refresh / deepest historical batch), rows with no
+        /// LastSavedAt are included. Recent historical windows set false so
+        /// untimestamped rows are delivered once in the deep batch.
+        /// </summary>
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public bool? include_missing_timestamps { get; set; }
     }
 
     public class VendorBody
@@ -225,7 +247,8 @@ namespace Sage50Connector
                     + RuntimeEnvironment.ModeName
                     + "; ExecutablePath='"
                     + RuntimeEnvironment.ExecutablePath
-                    + "'"
+                    + "'; ConnectorVersion="
+                    + AppVersion.Display
             );
 
             try
@@ -724,95 +747,91 @@ namespace Sage50Connector
             WriteToFile(DateTime.Now + ": Handling LIST_FETCH job for " + job.platform_entity);
             try
             {
-                var updatedAt = job.parameters.updated_at;
-                var allRecords = GetEntityData(job.platform_entity, CompanyName, updatedAt);
-                var page = TakePage(allRecords, job.parameters, out string nextCursor);
+                var jsonSettings = new JsonSerializerSettings
+                {
+                    ContractResolver = new Newtonsoft.Json.Serialization.CamelCasePropertyNamesContractResolver()
+                };
+
+                // Load once per job into process memory; page from that list so
+                // multi-page fetches are O(n) rather than O(n²/limit) Sage loads.
+                List<object> allRecords;
+                if (!JobFetchCache.TryGet(job.job_id, job.platform_entity, out allRecords))
+                {
+                    allRecords = GetEntityData(
+                        job.platform_entity,
+                        CompanyName,
+                        job.parameters != null ? job.parameters.updated_at : null,
+                        job.parameters != null ? job.parameters.start_date : null,
+                        job.parameters != null ? job.parameters.end_date : null,
+                        job.parameters != null ? job.parameters.updated_before : null,
+                        job.parameters != null ? job.parameters.include_missing_timestamps : null);
+                    allRecords = allRecords
+                        .OrderBy(record => GetRecordId(record), StringComparer.Ordinal)
+                        .ToList();
+                    JobFetchCache.Put(job.job_id, job.platform_entity, allRecords);
+                    var ids = allRecords.Select(GetRecordId).Where(id => !string.IsNullOrEmpty(id)).ToList();
+                    JobIdListCache.Put(job.job_id, job.platform_entity, ids);
+                }
+
+                int offset;
+                var page = TakePage(allRecords, job.parameters, out string nextCursor, out offset);
 
                 Helpers.SyncStatus.Instance.SetSyncing(
                     job.platform_entity,
-                    page == null ? 0 : page.Count,
+                    offset + (page == null ? 0 : page.Count),
                     allRecords == null ? 0 : allRecords.Count);
 
-                if (page != null && page.Count > 0)
+                // Always report the full page. Unchanged-row dedupe is the
+                // server upsert's job (content hash / platform_id match), not
+                // the connector's. Delete monitoring is not supported: the Sage
+                // Peachtree SDK has no deleted-entity query (no QBD
+                // TxnDeleted/ListDeleted equivalent). Detecting hard deletes
+                // would require full-inventory id set-diff across syncs; we
+                // deliberately do not do that.
+                WriteToFile(
+                    DateTime.Now
+                        + ": Fetched page offset=" + offset
+                        + " size=" + (page == null ? 0 : page.Count)
+                        + " of " + allRecords.Count + " "
+                        + job.platform_entity + "(s)"
+                        + (nextCursor == null ? " (final page)" : "; next_cursor=" + nextCursor));
+
+                // next_cursor has to be absent, not null, on the final page.
+                object responseObject;
+                if (nextCursor == null)
                 {
-                    WriteToFile(
-                        DateTime.Now
-                            + ": Fetched " + page.Count + " of " + allRecords.Count + " "
-                            + job.platform_entity + "(s) from Sage 50 Company: '" + CompanyName + "'"
-                            + (nextCursor == null ? " (final page)" : "; next_cursor=" + nextCursor)
-                    );
-                    // next_cursor has to be absent, not null, on the final page:
-                    // Rutter types it as an optional string, which accepts a missing
-                    // key but rejects an explicit null.
-                    object responseObject;
-                    if (nextCursor == null)
+                    responseObject = new
                     {
-                        responseObject = new
-                        {
-                            connection = new { id = ConnectionId },
-                            job_id = job.job_id,
-                            type = job.type,
-                            platform_entity = job.platform_entity,
-                            parameters = job.parameters,
-                            data = page,
-                        };
-                    }
-                    else
-                    {
-                        responseObject = new
-                        {
-                            connection = new { id = ConnectionId },
-                            job_id = job.job_id,
-                            type = job.type,
-                            platform_entity = job.platform_entity,
-                            parameters = job.parameters,
-                            data = page,
-                            next_cursor = nextCursor,
-                        };
-                    }
-
-                    // Serialize the payload directly. Going through
-                    // JObject.FromObject first materialises the property names
-                    // with Sage's own casing (ID, Name, IsInactive), and a
-                    // ContractResolver has no effect when serializing a JObject -
-                    // the names are already fixed. Rutter extracts the primary key
-                    // from $.id, so PascalCase names left every record with a null
-                    // platform_id and 156 accounts collapsed onto a single row.
-                    string jsonString = JsonConvert.SerializeObject(responseObject, new JsonSerializerSettings
-                    {
-                        ContractResolver = new Newtonsoft.Json.Serialization.CamelCasePropertyNamesContractResolver()
-                    });
-
-                    await PostToRutterAsync(jsonString, AccessKey);
-
-                    if (nextCursor == null)
-                    {
-                        Helpers.SyncStatus.Instance.SetEntitySynced(job.platform_entity, allRecords.Count);
-                    }
-                }
-                else
-                {
-                    Helpers.SyncStatus.Instance.SetEntitySynced(job.platform_entity, 0);
-                    WriteToFile(DateTime.Now + ": No " + job.platform_entity + "(s) to read. Please ensure Agent has permissions to Sage Company '" + CompanyName + "'");
-                    var responseObject = new
-                    {
-                        connection = new
-                        {
-                            id = ConnectionId
-                        },
+                        connection = new { id = ConnectionId },
                         job_id = job.job_id,
                         type = job.type,
                         platform_entity = job.platform_entity,
                         parameters = job.parameters,
-                        data = new List<object>()
+                        data = page,
                     };
-
-                    string jsonString = JsonConvert.SerializeObject(responseObject, new JsonSerializerSettings
+                }
+                else
+                {
+                    responseObject = new
                     {
-                        ContractResolver = new Newtonsoft.Json.Serialization.CamelCasePropertyNamesContractResolver()
-                    });
+                        connection = new { id = ConnectionId },
+                        job_id = job.job_id,
+                        type = job.type,
+                        platform_entity = job.platform_entity,
+                        parameters = job.parameters,
+                        data = page,
+                        next_cursor = nextCursor,
+                    };
+                }
 
-                    await PostToRutterAsync(jsonString, AccessKey);
+                string jsonString = JsonConvert.SerializeObject(responseObject, jsonSettings);
+                await PostToRutterAsync(jsonString, AccessKey);
+
+                if (nextCursor == null)
+                {
+                    Helpers.SyncStatus.Instance.SetEntitySynced(job.platform_entity, allRecords.Count);
+                    JobFetchCache.Remove(job.job_id, job.platform_entity);
+                    JobIdListCache.Remove(job.job_id, job.platform_entity);
                 }
             }
             catch (Exception ex)
@@ -867,34 +886,48 @@ namespace Sage50Connector
         /// database, and an offset silently skips a record whenever something is
         /// inserted earlier in the order between pages.
         /// </summary>
-        private static List<object> TakePage(List<object> records, Parameters parameters, out string nextCursor)
+        private static List<object> TakePage(
+            List<object> records,
+            Parameters parameters,
+            out string nextCursor,
+            out int offset)
         {
             nextCursor = null;
+            offset = 0;
             if (records == null)
             {
                 return new List<object>();
             }
 
-            var ordered = records
-                .OrderBy(record => GetRecordId(record), StringComparer.Ordinal)
-                .ToList();
-
+            // Records are expected pre-sorted by id (HandleListFetchJob orders once).
+            int startIndex = 0;
             if (!string.IsNullOrEmpty(parameters?.cursor))
             {
-                ordered = ordered
-                    .Where(record => StringComparer.Ordinal.Compare(GetRecordId(record), parameters.cursor) > 0)
-                    .ToList();
+                startIndex = records.Count;
+                for (int i = 0; i < records.Count; i++)
+                {
+                    if (StringComparer.Ordinal.Compare(GetRecordId(records[i]), parameters.cursor) > 0)
+                    {
+                        startIndex = i;
+                        break;
+                    }
+                }
             }
 
-            int limit = parameters != null && parameters.limit > 0 ? parameters.limit : ordered.Count;
-            if (ordered.Count > limit)
+            offset = startIndex;
+            int remaining = records.Count - startIndex;
+            if (remaining <= 0)
             {
-                var page = ordered.Take(limit).ToList();
-                nextCursor = GetRecordId(page[page.Count - 1]);
-                return page;
+                return new List<object>();
             }
 
-            return ordered;
+            int limit = parameters != null && parameters.limit > 0 ? parameters.limit : remaining;
+            var page = records.Skip(startIndex).Take(Math.Min(limit, remaining)).ToList();
+            if (remaining > limit)
+            {
+                nextCursor = GetRecordId(page[page.Count - 1]);
+            }
+            return page;
         }
 
         /// <summary>
@@ -908,15 +941,29 @@ namespace Sage50Connector
             return property?.GetValue(record)?.ToString() ?? string.Empty;
         }
 
-        private static List<object> GetEntityData(string entity, string companyName, string updatedAt)
+        private static List<object> GetEntityData(
+            string entity,
+            string companyName,
+            string updatedAt,
+            string startDate = null,
+            string endDate = null,
+            string updatedBefore = null,
+            bool? includeMissingTimestamps = null)
         {
-            WriteToFile(DateTime.Now + $": Fetching {entity} data for company: {companyName} with updated_at: {updatedAt}");
+            // Default true preserves side-refresh over-fetch for untimestamped rows.
+            bool includeMissing = includeMissingTimestamps ?? true;
+            WriteToFile(DateTime.Now + $": Fetching {entity} data for company: {companyName} with updated_at: {updatedAt}"
+                + (updatedBefore != null ? $", updated_before: {updatedBefore}" : "")
+                + $", include_missing_timestamps: {includeMissing}"
+                + (startDate != null || endDate != null
+                    ? $", date window [{startDate ?? ".."}..{endDate ?? ".."}]"
+                    : ""));
             List<object> data = new List<object>();
 
             switch (entity)
             {
                 case "VENDORS":
-                    var vendors = Sage50Repository.Instance.GetVendors(companyName, updatedAt);
+                    var vendors = Sage50Repository.Instance.GetVendors(companyName, updatedAt, updatedBefore, includeMissing);
                     WriteToFile(DateTime.Now + $": Retrieved {vendors.Count} vendors from Sage 50 before filtering.");
                     data = vendors.Cast<object>().ToList();
                     break;
@@ -933,7 +980,7 @@ namespace Sage50Connector
                     data = accounts;
                     break;
                 case "CUSTOMERS":
-                    var customers = Sage50Repository.Instance.GetCustomers(companyName, updatedAt);
+                    var customers = Sage50Repository.Instance.GetCustomers(companyName, updatedAt, updatedBefore, includeMissing);
                     WriteToFile(DateTime.Now + $": Retrieved {customers.Count} customers from Sage 50.");
                     data = customers.Cast<object>().ToList();
                     break;
@@ -947,27 +994,27 @@ namespace Sage50Connector
                         : new List<object> { companyInfo };
                     break;
                 case "JOURNAL_ENTRIES":
-                    var journalEntries = Sage50Repository.Instance.GetJournalEntries(companyName, updatedAt);
+                    var journalEntries = Sage50Repository.Instance.GetJournalEntries(companyName, updatedAt, updatedBefore, includeMissing);
                     WriteToFile(DateTime.Now + $": Retrieved {journalEntries.Count} journal entries from Sage 50.");
                     data = journalEntries.Cast<object>().ToList();
                     break;
                 case "INVOICES":
-                    var invoices = Sage50Repository.Instance.GetInvoices(companyName, updatedAt);
+                    var invoices = Sage50Repository.Instance.GetInvoices(companyName, updatedAt, updatedBefore, includeMissing);
                     WriteToFile(DateTime.Now + $": Retrieved {invoices.Count} invoices from Sage 50.");
                     data = invoices.Cast<object>().ToList();
                     break;
                 case "BILLS":
-                    var bills = Sage50Repository.Instance.GetBills(companyName, updatedAt);
+                    var bills = Sage50Repository.Instance.GetBills(companyName, updatedAt, updatedBefore, includeMissing);
                     WriteToFile(DateTime.Now + $": Retrieved {bills.Count} bills from Sage 50.");
                     data = bills.Cast<object>().ToList();
                     break;
                 case "EXPENSES":
-                    var expenses = Sage50Repository.Instance.GetExpenses(companyName, updatedAt);
+                    var expenses = Sage50Repository.Instance.GetExpenses(companyName, updatedAt, updatedBefore, includeMissing);
                     WriteToFile(DateTime.Now + $": Retrieved {expenses.Count} payments from Sage 50.");
                     data = expenses.Cast<object>().ToList();
                     break;
                 case "INVOICE_PAYMENTS":
-                    var invoicePayments = Sage50Repository.Instance.GetInvoicePayments(companyName, updatedAt);
+                    var invoicePayments = Sage50Repository.Instance.GetInvoicePayments(companyName, updatedAt, updatedBefore, includeMissing);
                     WriteToFile(DateTime.Now + $": Retrieved {invoicePayments.Count} receipts from Sage 50.");
                     data = invoicePayments.Cast<object>().ToList();
                     break;
@@ -980,8 +1027,30 @@ namespace Sage50Connector
                     throw new ArgumentException("Unknown platform entity: " + entity);
             }
 
+            data = FilterByDateWindow(data, startDate, endDate);
             WriteToFile(DateTime.Now + $": Returning {data.Count} {entity}(s) after filtering.");
             return data;
+        }
+
+        /// <summary>
+        /// Fiscal / date window on transaction bodies that expose a Date property
+        /// (yyyy-MM-dd). Non-transaction entities are unaffected.
+        /// </summary>
+        private static List<object> FilterByDateWindow(List<object> records, string startDate, string endDate)
+        {
+            if (records == null || records.Count == 0) return records ?? new List<object>();
+            if (string.IsNullOrEmpty(startDate) && string.IsNullOrEmpty(endDate)) return records;
+
+            return records.Where(record =>
+            {
+                var prop = record?.GetType().GetProperty("Date");
+                if (prop == null) return true;
+                string date = prop.GetValue(record) as string;
+                if (string.IsNullOrEmpty(date)) return true;
+                if (!string.IsNullOrEmpty(startDate) && string.CompareOrdinal(date, startDate) < 0) return false;
+                if (!string.IsNullOrEmpty(endDate) && string.CompareOrdinal(date, endDate) > 0) return false;
+                return true;
+            }).ToList();
         }
 
         /// <summary>

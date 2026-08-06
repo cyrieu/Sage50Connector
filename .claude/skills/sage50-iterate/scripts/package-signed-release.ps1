@@ -25,12 +25,24 @@ Write-Output ('EXE SHA256: ' + (Get-FileHash $exe -Algorithm SHA256).Hash)
 # AnyCPU selects the real C# output paths (bin\Release). Product.wxs still marks
 # the MSI package itself x86. BuildProjectReferences=false is critical: rebuilding
 # the connector here would overwrite the signed EXE before WiX embeds it.
+# Read MSI version from Version.props so Product.wxs $(var.ProductVersion) is set
+# even when this script builds the WiX project alone (Platform=AnyCPU).
+$msiVersion = '1.1.0'
+$versionProps = Join-Path $repo 'Version.props'
+if (Test-Path $versionProps) {
+  $m = [regex]::Match((Get-Content $versionProps -Raw), '<Sage50ConnectorMsiVersion>([^<]+)</Sage50ConnectorMsiVersion>')
+  if ($m.Success) { $msiVersion = $m.Groups[1].Value.Trim() }
+}
+Write-Output ("MSI ProductVersion: " + $msiVersion)
+
 & $msbuild $wix `
   /t:Rebuild `
   /p:Configuration=Release `
   /p:Platform=AnyCPU `
   /p:OutputPath=bin\Release\ `
   /p:BuildProjectReferences=false `
+  /p:Sage50ConnectorMsiVersion=$msiVersion `
+  /p:DefineConstants="ProductVersion=$msiVersion" `
   /m:1 `
   /v:minimal `
   /nologo

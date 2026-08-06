@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Build on the Windows VM, sign on this Mac, and move the immutable artifacts
-# back and forth over SSH/SCP. Azure credentials never need to be stored on the VM.
+# Build on the Windows VM, sign on this Mac, move immutable artifacts back and
+# forth over SSH/SCP, then publish to S3 for Link install + assisted auto-update.
+# Azure credentials never need to be stored on the VM.
 #
 # Required env (no defaults — keep lab infrastructure out of the public tree):
 #   SAGE50_SSH_HOST
@@ -12,6 +13,10 @@
 #   SAGE50_SIGNING_CERTIFICATE_PROFILE
 # Optional:
 #   SAGE50_SSH_REMOTE_WIN_HOME  (default: C:/Users/$SAGE50_SSH_USER)
+#   SAGE50_SKIP_PUBLISH=1       skip S3 publish (sign-only)
+#   SAGE50_RELEASE_NOTES        notes field in release.json
+#   SAGE50_MIN_VERSION          min_version in release.json (default 1.0.0)
+#   SAGE50_PUBLISH_BUCKET / SAGE50_PUBLISH_REGION  (see publish-release.sh)
 set -euo pipefail
 
 script_dir=$(cd "$(dirname "$0")" && pwd)
@@ -58,6 +63,36 @@ release_dir="$repo_root/artifacts/sage50-release-$expected_short"
   echo "release already exists and will not be overwritten: $release_dir" >&2
   exit 1
 }
+
+# Version hygiene: AssemblyInfo must match Version.props before we build/sign.
+props="$repo_root/Version.props"
+assembly_info="$repo_root/Properties/AssemblyInfo.cs"
+asm_version=$(sed -n 's/.*<Sage50ConnectorVersion>\([^<]*\)<\/Sage50ConnectorVersion>.*/\1/p' "$props" | head -1 | tr -d '[:space:]')
+msi_version=$(sed -n 's/.*<Sage50ConnectorMsiVersion>\([^<]*\)<\/Sage50ConnectorMsiVersion>.*/\1/p' "$props" | head -1 | tr -d '[:space:]')
+[ -n "$asm_version" ] && [ -n "$msi_version" ] || {
+  echo 'could not read versions from Version.props' >&2
+  exit 1
+}
+grep -q "AssemblyFileVersion(\"$asm_version\")" "$assembly_info" || {
+  echo "AssemblyInfo.cs FileVersion must match Version.props ($asm_version)" >&2
+  exit 1
+}
+grep -q "AssemblyVersion(\"$asm_version\")" "$assembly_info" || {
+  echo "AssemblyInfo.cs AssemblyVersion must match Version.props ($asm_version)" >&2
+  exit 1
+}
+echo "Releasing version $msi_version (assembly $asm_version) @ $expected_short"
+
+if [ "${SAGE50_SKIP_PUBLISH:-0}" != "1" ]; then
+  command -v aws >/dev/null || {
+    echo 'aws CLI required to publish (or set SAGE50_SKIP_PUBLISH=1 for sign-only)' >&2
+    exit 1
+  }
+  command -v zip >/dev/null || {
+    echo 'zip required to publish Link installer (or set SAGE50_SKIP_PUBLISH=1)' >&2
+    exit 1
+  }
+fi
 
 scp "${ssh_opts[@]}" "$script_dir/stop-for-release.ps1" \
   "$remote:$remote_win_home/sage50-stop-for-release.ps1"
@@ -114,4 +149,15 @@ ssh "${ssh_opts[@]}" "$remote" \
   "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\\src\\Sage50Connector\\.claude\\skills\\sage50-iterate\\scripts\\finalize-signed-release.ps1"
 
 shasum -a 256 "$exe" "$msi"
-echo "SIGNED RELEASE OK: $release_dir"
+echo "SIGNED RELEASE OK: $release_dir (version $msi_version)"
+
+# --- Publish for Link first-install + in-app assisted auto-update ---
+if [ "${SAGE50_SKIP_PUBLISH:-0}" = "1" ]; then
+  echo "Skipping S3 publish (SAGE50_SKIP_PUBLISH=1). Local artifacts only:"
+  echo "  $release_dir"
+  echo "Run publish-release.sh later when ready."
+else
+  "$script_dir/publish-release.sh" "$release_dir"
+  echo "CUSTOMER RELEASE COMPLETE: signed + published version $msi_version"
+  echo "Customers installing this build must re-approve the EXE in Sage 50."
+fi

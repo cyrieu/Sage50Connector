@@ -672,7 +672,8 @@ survives a short restart, but a long outage still exits the process by design.
 - Ordinary development builds are unsigned. Customer artifacts must be produced
   with `release.ps1`, which signs both the EXE and MSI through Azure Artifact
   Signing before verification.
-- **No auto-update mechanism.**
+- **No silent auto-update.** Assisted upgrade exists (tray → Check for updates →
+  MSI → Sage re-approval). See `docs/updates.md`.
 - **The transaction reads are written but never executed.** Journal entries,
   invoices, bills and expenses were added 2026-08-03 and have not been compiled,
   run, or seen against real data. Nothing on the Rutter side normalizes them yet:

@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <!-- ProductVersion is defined in the .wixproj from Version.props (three-part). -->
   <Product Id="*"
            Name="Rutter Sage 50 Connector"
            Language="1033"
-           Version="1.0.0.0"
+           Version="$(var.ProductVersion)"
            Manufacturer="Rutter"
            UpgradeCode="{D7F3C026-081A-4C0A-9F17-AA4EAEE4A9B7}">
     <Package InstallerVersion="200" Compressed="yes" InstallScope="perMachine" Platform="x86" />
