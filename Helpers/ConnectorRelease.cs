@@ -8,7 +8,7 @@ namespace Sage50Connector.Helpers
     /// Silent auto-update is impossible (Sage grants are MD5 of the EXE); this
     /// drives assisted upgrade + re-approval.
     /// </summary>
-    internal class ConnectorRelease
+    public class ConnectorRelease
     {
         [JsonProperty("version")]
         public string Version { get; set; }
@@ -45,7 +45,7 @@ namespace Sage50Connector.Helpers
         }
     }
 
-    internal enum UpdateAvailability
+    public enum UpdateAvailability
     {
         Unknown,
         UpToDate,
@@ -54,7 +54,7 @@ namespace Sage50Connector.Helpers
         CheckFailed,
     }
 
-    internal class UpdateCheckResult
+    public class UpdateCheckResult
     {
         public UpdateAvailability Availability { get; set; }
         public ConnectorRelease Release { get; set; }
