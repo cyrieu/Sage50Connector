@@ -11,6 +11,8 @@
     <OutputType>Package</OutputType>
     <Cultures>neutral,en-us</Cultures>
     <Sage50ConnectorMsiVersion Condition=" '$(Sage50ConnectorMsiVersion)' == '' ">1.1.0</Sage50ConnectorMsiVersion>
+    <!-- Always define ProductVersion for Product.wxs (package-signed-release uses Platform=AnyCPU). -->
+    <DefineConstants>ProductVersion=$(Sage50ConnectorMsiVersion)</DefineConstants>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x86' ">
     <OutputPath>bin\$(Configuration)\</OutputPath>
@@ -20,6 +22,11 @@
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x86' ">
     <OutputPath>bin\$(Configuration)\</OutputPath>
     <IntermediateOutputPath>obj\$(Configuration)\</IntermediateOutputPath>
+    <DefineConstants>ProductVersion=$(Sage50ConnectorMsiVersion)</DefineConstants>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <OutputPath>bin\Release\</OutputPath>
+    <IntermediateOutputPath>obj\Release\</IntermediateOutputPath>
     <DefineConstants>ProductVersion=$(Sage50ConnectorMsiVersion)</DefineConstants>
   </PropertyGroup>
   <ItemGroup>
