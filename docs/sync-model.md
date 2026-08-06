@@ -19,7 +19,6 @@ refresh scheduler (side or full)
   ⋮  minutes later
 connector poll → selectNextJob (priority ASC, stage-gated) → job served
   └─ JobFetchCache: Load Sage once per job_id, page from memory
-       • optional hash filter (omit unchanged rows)
   └─ handleIngestListFetchJob
        • first page → insert RefreshEntityRun (SIDE_ or FULL_REFRESH)
        • data pages → syncPrefetchedPlatformEntities(dispatchWebhooks: true)
@@ -56,7 +55,10 @@ Under `%ProgramData%\Rutter\Sage50Connector\cache\`:
 |---|---|
 | `JobFetchCache` (in-process) | Full filtered list for an open `job_id` — one Sage `Load()` per job, not per page |
 | `{jobId}/{entity}.ids` | Disk id list for restart resilience / progress |
-| `hashes/{connection}_{entity}.hashes` | id → SHA-256 of serialized body; omit unchanged rows |
+
+The connector always reports every row in the page. Unchanged-row dedupe is left
+to the server upsert (content hash / `platform_id` match). No client-side hash
+cache.
 
 Optional `start_date` / `end_date` (yyyy-MM-dd) filter transaction bodies by
 document `Date` after load (fiscal / outer range windowing).
@@ -74,7 +76,7 @@ implement that. Explicit vendor `DELETE` write jobs still work.
 
 ## Still imperfect / follow-ups
 
-- Sage `LastSavedAt` still often null → connector includes untimestamped rows (safe over-fetch); hash cache reduces re-send volume.
+- Sage `LastSavedAt` still often null → connector includes untimestamped rows (safe over-fetch); server upsert dedupes unchanged payloads.
 - Accounts still ignore `updated_at` on the Sage side.
 - Per-accounting-period multi-job historical batches (N windows per entity) not yet enqueued from Rutter — outer fiscal range params are supported when set.
 - Scorecard still scores enqueue-only fetchers poorly unless exempted.

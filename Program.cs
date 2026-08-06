@@ -763,40 +763,17 @@ namespace Sage50Connector
                     offset + (page == null ? 0 : page.Count),
                     allRecords == null ? 0 : allRecords.Count);
 
-                // Hash filter: omit unchanged rows from the wire, but still
-                // advance the cursor over the id list (empty data + next_cursor is ok).
-                //
-                // Delete monitoring is not supported: the Sage Peachtree SDK has no
-                // deleted-entity query (no QBD TxnDeleted/ListDeleted equivalent).
-                // Detecting hard deletes would require full-inventory id set-diff
-                // across syncs; we deliberately do not do that.
-                var hashMap = EntityHashCache.Load(ConnectionId, job.platform_entity);
-                var reportPage = new List<object>();
-                int skippedUnchanged = 0;
-                if (page != null)
-                {
-                    foreach (var record in page)
-                    {
-                        string id = GetRecordId(record);
-                        string hash = EntityHashCache.HashRecord(record, jsonSettings);
-                        string prior;
-                        if (!string.IsNullOrEmpty(id) && hashMap.TryGetValue(id, out prior) && prior == hash)
-                        {
-                            skippedUnchanged++;
-                            continue;
-                        }
-                        if (!string.IsNullOrEmpty(id)) hashMap[id] = hash;
-                        reportPage.Add(record);
-                    }
-                }
-                EntityHashCache.Save(ConnectionId, job.platform_entity, hashMap);
-
+                // Always report the full page. Unchanged-row dedupe is the
+                // server upsert's job (content hash / platform_id match), not
+                // the connector's. Delete monitoring is not supported: the Sage
+                // Peachtree SDK has no deleted-entity query (no QBD
+                // TxnDeleted/ListDeleted equivalent). Detecting hard deletes
+                // would require full-inventory id set-diff across syncs; we
+                // deliberately do not do that.
                 WriteToFile(
                     DateTime.Now
                         + ": Fetched page offset=" + offset
                         + " size=" + (page == null ? 0 : page.Count)
-                        + " report=" + reportPage.Count
-                        + " skippedUnchanged=" + skippedUnchanged
                         + " of " + allRecords.Count + " "
                         + job.platform_entity + "(s)"
                         + (nextCursor == null ? " (final page)" : "; next_cursor=" + nextCursor));
@@ -812,7 +789,7 @@ namespace Sage50Connector
                         type = job.type,
                         platform_entity = job.platform_entity,
                         parameters = job.parameters,
-                        data = reportPage,
+                        data = page,
                     };
                 }
                 else
@@ -824,7 +801,7 @@ namespace Sage50Connector
                         type = job.type,
                         platform_entity = job.platform_entity,
                         parameters = job.parameters,
-                        data = reportPage,
+                        data = page,
                         next_cursor = nextCursor,
                     };
                 }
