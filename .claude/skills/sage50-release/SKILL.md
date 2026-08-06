@@ -39,9 +39,14 @@ Confirm all of the following:
   `SAGE50_SIGNING_CERTIFICATE_PROFILE`.
 - `az`, `jsign`, `ssh`, `scp`, `aws`, and `zip` are installed on the Mac
   (`aws`/`zip` required unless `SAGE50_SKIP_PUBLISH=1`).
-- The Mac's Azure CLI identity is authenticated for the signing subscription.
-- AWS can write the public installer bucket (default
-  `s3://rutterpublicimages/` in `us-east-2`).
+- The Mac's Azure CLI identity is authenticated for the signing subscription
+  (`Azure Signing Certificate` / account `RutterSigning` / profile
+  `DynamicsCertificate` / endpoint `https://eus.codesigning.azure.net/`).
+- **AWS profile for S3 publish: `ericincident`.** `publish-release.sh` uses
+  whatever credentials the shell has; do **not** rely on `default` (that is
+  usually an expired `aws login` session). Always export
+  `AWS_PROFILE=ericincident` before release/publish. Confirm with
+  `AWS_PROFILE=ericincident aws s3 ls s3://rutterpublicimages/sage50-connector/ --region us-east-2`.
 - No release directory already exists for the current commit. Never overwrite,
   rebuild, modify, or re-sign an existing release.
 
@@ -49,6 +54,7 @@ Optional publish env:
 
 | Env | Default | Purpose |
 |---|---|---|
+| `AWS_PROFILE` | **must be `ericincident`** | IAM user that can write `s3://rutterpublicimages/` |
 | `SAGE50_RELEASE_NOTES` | empty | Customer-facing notes in `release.json` |
 | `SAGE50_MIN_VERSION` | `1.0.0` | Forced-update floor for in-app checker |
 | `SAGE50_PUBLISH_BUCKET` | `rutterpublicimages` | S3 bucket |
@@ -64,6 +70,9 @@ Do not print Azure access tokens, connector access keys, or other credentials.
 From the repository root:
 
 ```bash
+# S3 publish credentials (required unless SAGE50_SKIP_PUBLISH=1)
+export AWS_PROFILE=ericincident
+
 # Optional: customer-facing release notes for the updater dialog
 export SAGE50_RELEASE_NOTES='Bug fixes and improved setup.'
 
@@ -91,6 +100,7 @@ That script:
 ```bash
 SAGE50_SKIP_PUBLISH=1 .claude/skills/sage50-iterate/scripts/release-via-ssh.sh
 # later:
+export AWS_PROFILE=ericincident
 .claude/skills/sage50-iterate/scripts/publish-release.sh \
   artifacts/sage50-release-<short-sha>
 ```
@@ -98,6 +108,7 @@ SAGE50_SKIP_PUBLISH=1 .claude/skills/sage50-iterate/scripts/release-via-ssh.sh
 ### Re-publish an existing signed release dir
 
 ```bash
+export AWS_PROFILE=ericincident
 .claude/skills/sage50-iterate/scripts/publish-release.sh \
   artifacts/sage50-release-<short-sha>
 ```

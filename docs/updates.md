@@ -63,11 +63,14 @@ Published JSON (example):
 
 ```bash
 # Full customer release (sign + publish)
+# Use ericincident for S3 — not default (default is usually an expired aws login).
+export AWS_PROFILE=ericincident
 export SAGE50_RELEASE_NOTES='What customers see in the update dialog.'
 .claude/skills/sage50-iterate/scripts/release-via-ssh.sh
 
 # Sign only, publish later
 SAGE50_SKIP_PUBLISH=1 .claude/skills/sage50-iterate/scripts/release-via-ssh.sh
+export AWS_PROFILE=ericincident
 .claude/skills/sage50-iterate/scripts/publish-release.sh \
   artifacts/sage50-release-<short-sha>
 ```
