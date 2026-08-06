@@ -52,6 +52,13 @@ namespace Sage50Connector
         /// <summary>The record an ID_FETCH, UPDATE or DELETE job targets.</summary>
         [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
         public string platform_id { get; set; }
+
+        /// <summary>Optional transaction date window (yyyy-MM-dd), inclusive.</summary>
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public string start_date { get; set; }
+
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public string end_date { get; set; }
     }
 
     public class VendorBody
@@ -724,95 +731,112 @@ namespace Sage50Connector
             WriteToFile(DateTime.Now + ": Handling LIST_FETCH job for " + job.platform_entity);
             try
             {
-                var updatedAt = job.parameters.updated_at;
-                var allRecords = GetEntityData(job.platform_entity, CompanyName, updatedAt);
-                var page = TakePage(allRecords, job.parameters, out string nextCursor);
+                var jsonSettings = new JsonSerializerSettings
+                {
+                    ContractResolver = new Newtonsoft.Json.Serialization.CamelCasePropertyNamesContractResolver()
+                };
+
+                // Load once per job into process memory; page from that list so
+                // multi-page fetches are O(n) rather than O(n²/limit) Sage loads.
+                List<object> allRecords;
+                if (!JobFetchCache.TryGet(job.job_id, job.platform_entity, out allRecords))
+                {
+                    allRecords = GetEntityData(
+                        job.platform_entity,
+                        CompanyName,
+                        job.parameters != null ? job.parameters.updated_at : null,
+                        job.parameters != null ? job.parameters.start_date : null,
+                        job.parameters != null ? job.parameters.end_date : null);
+                    allRecords = allRecords
+                        .OrderBy(record => GetRecordId(record), StringComparer.Ordinal)
+                        .ToList();
+                    JobFetchCache.Put(job.job_id, job.platform_entity, allRecords);
+                    var ids = allRecords.Select(GetRecordId).Where(id => !string.IsNullOrEmpty(id)).ToList();
+                    JobIdListCache.Put(job.job_id, job.platform_entity, ids);
+                }
+
+                int offset;
+                var page = TakePage(allRecords, job.parameters, out string nextCursor, out offset);
 
                 Helpers.SyncStatus.Instance.SetSyncing(
                     job.platform_entity,
-                    page == null ? 0 : page.Count,
+                    offset + (page == null ? 0 : page.Count),
                     allRecords == null ? 0 : allRecords.Count);
 
-                if (page != null && page.Count > 0)
+                // Hash filter: omit unchanged rows from the wire, but still
+                // advance the cursor over the id list (empty data + next_cursor is ok).
+                //
+                // Delete monitoring is not supported: the Sage Peachtree SDK has no
+                // deleted-entity query (no QBD TxnDeleted/ListDeleted equivalent).
+                // Detecting hard deletes would require full-inventory id set-diff
+                // across syncs; we deliberately do not do that.
+                var hashMap = EntityHashCache.Load(ConnectionId, job.platform_entity);
+                var reportPage = new List<object>();
+                int skippedUnchanged = 0;
+                if (page != null)
                 {
-                    WriteToFile(
-                        DateTime.Now
-                            + ": Fetched " + page.Count + " of " + allRecords.Count + " "
-                            + job.platform_entity + "(s) from Sage 50 Company: '" + CompanyName + "'"
-                            + (nextCursor == null ? " (final page)" : "; next_cursor=" + nextCursor)
-                    );
-                    // next_cursor has to be absent, not null, on the final page:
-                    // Rutter types it as an optional string, which accepts a missing
-                    // key but rejects an explicit null.
-                    object responseObject;
-                    if (nextCursor == null)
+                    foreach (var record in page)
                     {
-                        responseObject = new
+                        string id = GetRecordId(record);
+                        string hash = EntityHashCache.HashRecord(record, jsonSettings);
+                        string prior;
+                        if (!string.IsNullOrEmpty(id) && hashMap.TryGetValue(id, out prior) && prior == hash)
                         {
-                            connection = new { id = ConnectionId },
-                            job_id = job.job_id,
-                            type = job.type,
-                            platform_entity = job.platform_entity,
-                            parameters = job.parameters,
-                            data = page,
-                        };
-                    }
-                    else
-                    {
-                        responseObject = new
-                        {
-                            connection = new { id = ConnectionId },
-                            job_id = job.job_id,
-                            type = job.type,
-                            platform_entity = job.platform_entity,
-                            parameters = job.parameters,
-                            data = page,
-                            next_cursor = nextCursor,
-                        };
-                    }
-
-                    // Serialize the payload directly. Going through
-                    // JObject.FromObject first materialises the property names
-                    // with Sage's own casing (ID, Name, IsInactive), and a
-                    // ContractResolver has no effect when serializing a JObject -
-                    // the names are already fixed. Rutter extracts the primary key
-                    // from $.id, so PascalCase names left every record with a null
-                    // platform_id and 156 accounts collapsed onto a single row.
-                    string jsonString = JsonConvert.SerializeObject(responseObject, new JsonSerializerSettings
-                    {
-                        ContractResolver = new Newtonsoft.Json.Serialization.CamelCasePropertyNamesContractResolver()
-                    });
-
-                    await PostToRutterAsync(jsonString, AccessKey);
-
-                    if (nextCursor == null)
-                    {
-                        Helpers.SyncStatus.Instance.SetEntitySynced(job.platform_entity, allRecords.Count);
+                            skippedUnchanged++;
+                            continue;
+                        }
+                        if (!string.IsNullOrEmpty(id)) hashMap[id] = hash;
+                        reportPage.Add(record);
                     }
                 }
-                else
+                EntityHashCache.Save(ConnectionId, job.platform_entity, hashMap);
+
+                WriteToFile(
+                    DateTime.Now
+                        + ": Fetched page offset=" + offset
+                        + " size=" + (page == null ? 0 : page.Count)
+                        + " report=" + reportPage.Count
+                        + " skippedUnchanged=" + skippedUnchanged
+                        + " of " + allRecords.Count + " "
+                        + job.platform_entity + "(s)"
+                        + (nextCursor == null ? " (final page)" : "; next_cursor=" + nextCursor));
+
+                // next_cursor has to be absent, not null, on the final page.
+                object responseObject;
+                if (nextCursor == null)
                 {
-                    Helpers.SyncStatus.Instance.SetEntitySynced(job.platform_entity, 0);
-                    WriteToFile(DateTime.Now + ": No " + job.platform_entity + "(s) to read. Please ensure Agent has permissions to Sage Company '" + CompanyName + "'");
-                    var responseObject = new
+                    responseObject = new
                     {
-                        connection = new
-                        {
-                            id = ConnectionId
-                        },
+                        connection = new { id = ConnectionId },
                         job_id = job.job_id,
                         type = job.type,
                         platform_entity = job.platform_entity,
                         parameters = job.parameters,
-                        data = new List<object>()
+                        data = reportPage,
                     };
-
-                    string jsonString = JsonConvert.SerializeObject(responseObject, new JsonSerializerSettings
+                }
+                else
+                {
+                    responseObject = new
                     {
-                        ContractResolver = new Newtonsoft.Json.Serialization.CamelCasePropertyNamesContractResolver()
-                    });
+                        connection = new { id = ConnectionId },
+                        job_id = job.job_id,
+                        type = job.type,
+                        platform_entity = job.platform_entity,
+                        parameters = job.parameters,
+                        data = reportPage,
+                        next_cursor = nextCursor,
+                    };
+                }
 
-                    await PostToRutterAsync(jsonString, AccessKey);
+                string jsonString = JsonConvert.SerializeObject(responseObject, jsonSettings);
+                await PostToRutterAsync(jsonString, AccessKey);
+
+                if (nextCursor == null)
+                {
+                    Helpers.SyncStatus.Instance.SetEntitySynced(job.platform_entity, allRecords.Count);
+                    JobFetchCache.Remove(job.job_id, job.platform_entity);
+                    JobIdListCache.Remove(job.job_id, job.platform_entity);
                 }
             }
             catch (Exception ex)
@@ -867,34 +891,48 @@ namespace Sage50Connector
         /// database, and an offset silently skips a record whenever something is
         /// inserted earlier in the order between pages.
         /// </summary>
-        private static List<object> TakePage(List<object> records, Parameters parameters, out string nextCursor)
+        private static List<object> TakePage(
+            List<object> records,
+            Parameters parameters,
+            out string nextCursor,
+            out int offset)
         {
             nextCursor = null;
+            offset = 0;
             if (records == null)
             {
                 return new List<object>();
             }
 
-            var ordered = records
-                .OrderBy(record => GetRecordId(record), StringComparer.Ordinal)
-                .ToList();
-
+            // Records are expected pre-sorted by id (HandleListFetchJob orders once).
+            int startIndex = 0;
             if (!string.IsNullOrEmpty(parameters?.cursor))
             {
-                ordered = ordered
-                    .Where(record => StringComparer.Ordinal.Compare(GetRecordId(record), parameters.cursor) > 0)
-                    .ToList();
+                startIndex = records.Count;
+                for (int i = 0; i < records.Count; i++)
+                {
+                    if (StringComparer.Ordinal.Compare(GetRecordId(records[i]), parameters.cursor) > 0)
+                    {
+                        startIndex = i;
+                        break;
+                    }
+                }
             }
 
-            int limit = parameters != null && parameters.limit > 0 ? parameters.limit : ordered.Count;
-            if (ordered.Count > limit)
+            offset = startIndex;
+            int remaining = records.Count - startIndex;
+            if (remaining <= 0)
             {
-                var page = ordered.Take(limit).ToList();
-                nextCursor = GetRecordId(page[page.Count - 1]);
-                return page;
+                return new List<object>();
             }
 
-            return ordered;
+            int limit = parameters != null && parameters.limit > 0 ? parameters.limit : remaining;
+            var page = records.Skip(startIndex).Take(Math.Min(limit, remaining)).ToList();
+            if (remaining > limit)
+            {
+                nextCursor = GetRecordId(page[page.Count - 1]);
+            }
+            return page;
         }
 
         /// <summary>
@@ -908,9 +946,17 @@ namespace Sage50Connector
             return property?.GetValue(record)?.ToString() ?? string.Empty;
         }
 
-        private static List<object> GetEntityData(string entity, string companyName, string updatedAt)
+        private static List<object> GetEntityData(
+            string entity,
+            string companyName,
+            string updatedAt,
+            string startDate = null,
+            string endDate = null)
         {
-            WriteToFile(DateTime.Now + $": Fetching {entity} data for company: {companyName} with updated_at: {updatedAt}");
+            WriteToFile(DateTime.Now + $": Fetching {entity} data for company: {companyName} with updated_at: {updatedAt}"
+                + (startDate != null || endDate != null
+                    ? $", date window [{startDate ?? ".."}..{endDate ?? ".."}]"
+                    : ""));
             List<object> data = new List<object>();
 
             switch (entity)
@@ -980,8 +1026,30 @@ namespace Sage50Connector
                     throw new ArgumentException("Unknown platform entity: " + entity);
             }
 
+            data = FilterByDateWindow(data, startDate, endDate);
             WriteToFile(DateTime.Now + $": Returning {data.Count} {entity}(s) after filtering.");
             return data;
+        }
+
+        /// <summary>
+        /// Fiscal / date window on transaction bodies that expose a Date property
+        /// (yyyy-MM-dd). Non-transaction entities are unaffected.
+        /// </summary>
+        private static List<object> FilterByDateWindow(List<object> records, string startDate, string endDate)
+        {
+            if (records == null || records.Count == 0) return records ?? new List<object>();
+            if (string.IsNullOrEmpty(startDate) && string.IsNullOrEmpty(endDate)) return records;
+
+            return records.Where(record =>
+            {
+                var prop = record?.GetType().GetProperty("Date");
+                if (prop == null) return true;
+                string date = prop.GetValue(record) as string;
+                if (string.IsNullOrEmpty(date)) return true;
+                if (!string.IsNullOrEmpty(startDate) && string.CompareOrdinal(date, startDate) < 0) return false;
+                if (!string.IsNullOrEmpty(endDate) && string.CompareOrdinal(date, endDate) > 0) return false;
+                return true;
+            }).ToList();
         }
 
         /// <summary>

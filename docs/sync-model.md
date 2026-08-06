@@ -1,178 +1,95 @@
 # Initial and incremental sync on a reverse-polled desktop platform
 
-How a Sage 50 sync is scheduled today, the four ways the current design is wrong
-about it, and the model to move to. Read `CLAUDE.md` first for the ingest
-protocol, and the Rutter-side platform doc
+How a Sage 50 sync is scheduled, how completion is observed, and the
+connector-side optimizations that keep multi-page fetches from going quadratic.
+Read `CLAUDE.md` first for the ingest protocol, and the Rutter-side platform doc
 (`rutter-backend: src/platformization/platforms/sage_50/CLAUDE.md`) for how jobs
 are generated.
 
-Everything under "What happens today" was read out of the code, not assumed;
-file references are given so the next person can check rather than trust.
-
-## What happens today
+## What happens today (post sync-OS work)
 
 ```
 refresh scheduler (side or full)
   └─ sage_50 sync/config.ts → buildSage50ListFetchStrategy.fetcher()
        • after = fetchMetadata.after.value
-       • INSERT desktop_platform_jobs (ENQUEUED, parameters={updated_at, limit:50})
-       • return { data: [], nextCursor: null }        ← the refresh "succeeded"
-                                                         here, with no data
+       • INSERT desktop_platform_jobs (ENQUEUED, priority by entity stage,
+         parameters={updated_at, limit})
+       • does NOT open/complete RefreshEntityRun (asyncDesktopCompletion)
+       • return { data: [], nextCursor: null }   ← enqueue succeeded only
   ⋮  minutes later
-connector poll → selectNextJob → job served → Sage read → report
+connector poll → selectNextJob (priority ASC, stage-gated) → job served
+  └─ JobFetchCache: Load Sage once per job_id, page from memory
+       • optional hash filter (omit unchanged rows)
   └─ handleIngestListFetchJob
-       • persists the page
+       • first page → insert RefreshEntityRun (SIDE_ or FULL_REFRESH)
+       • data pages → syncPrefetchedPlatformEntities(dispatchWebhooks: true)
        • next_cursor present → save cursor, stay IN_PROGRESS
-       • absent            → job COMPLETED
+       • absent → completeRun + job COMPLETED + lifecycle
+       • error_message → job FAILED, run left incomplete (cutoff does not advance)
 ```
 
 The incremental cutoff comes from `getEntityLastCompleted`
 (`src/genericWorker/utils/lastupdated/getEntityLastCompleted.ts`): the
 `startedAt` of the **last completed `SIDE_REFRESH` `RefreshEntityRun`** for that
-entity. For every cloud platform that is the run that actually fetched the data.
-For Sage 50 it is the run that inserted a row into a queue.
+entity. For Sage 50 that run is now opened on the first ingest page and completed
+only on the final page — same meaning as cloud platforms.
 
-## Four things that follow from that, all of them real
+## Entity ordering (priority + stage gate)
 
-**1. "Refresh complete" means "job enqueued".** The run completes when the
-fetcher returns, which is before the connector has opened Sage. So Rutter
-believes an item is refreshed while the migration is still running — and there is
-no state anywhere that means "the initial pull has actually finished". That is
-precisely the signal DualEntry asked for (initial-sync-complete /
-incremental-sync webhooks). `handleIngestListFetchJob` already carries the TODOs
-for it: `refreshEntityRunRepo.insertNewRun`, "Complete the job in
-refreshEntityRunRepo", "Record in platform_entity_cursors".
+| Priority | Entities |
+|---|---|
+| 0 | CREATE / UPDATE / DELETE / ID_FETCH |
+| 10 | COMPANY_INFO |
+| 20 | ACCOUNTS |
+| 30 | CUSTOMERS, VENDORS |
+| 40 | JOURNAL_ENTRIES, INVOICES, BILLS, EXPENSES |
 
-**2. A failed job silently advances the incremental cutoff.** An
-`error_message` marks the *job* `FAILED`, but the `RefreshEntityRun` completed
-back at enqueue time. The next side refresh therefore asks for changes since that
-run started, and anything that changed inside the failed window is never
-requested again. It self-heals only for records Sage never timestamps, because
-those are always included. Records Sage *does* timestamp are lost quietly, which
-is the worst shape a data bug can have.
+`selectNextJob` orders by `(priority ASC, updatedAt ASC)` and will not start an
+enqueued job while any unfinished job has a **lower** priority. Multi-page jobs
+still round-robin *within* a stage (cursor saves bump `updatedAt`).
 
-**3. Round-robin defeats entity ordering.** `selectNextJob` orders by
-`updatedAt ASC`, and saving a cursor bumps `updatedAt`, so a multi-page job goes
-to the back of the queue after every page. Entities interleave page by page.
-Nothing can express "finish accounts first", even though account mapping gates
-every transaction a migration imports.
+## Connector paging / caches
 
-**4. Every page rescans the entity from Sage.** `GetVendors`/`GetCustomers` call
-`list.Load()` — which materialises the whole list — then `TakePage` sorts by id
-in memory and takes 50. An entity of n rows costs n/50 full loads: O(n²/50) work
-and n/50 × full memory churn. The connector is 32-bit by necessity (the Sage SDK
-is x86), so ~2 GB of address space is the ceiling a large `Load()` runs into
-first. Bellwether hides all of this: 156 accounts is four loads of a small list.
+Under `%ProgramData%\Rutter\Sage50Connector\cache\`:
 
-The transaction reads make this the first thing to fix rather than a
-someday item, for two compounding reasons:
+| Cache | Purpose |
+|---|---|
+| `JobFetchCache` (in-process) | Full filtered list for an open `job_id` — one Sage `Load()` per job, not per page |
+| `{jobId}/{entity}.ids` | Disk id list for restart resilience / progress |
+| `hashes/{connection}_{entity}.hashes` | id → SHA-256 of serialized body; omit unchanged rows |
 
-- Transactions are the high-cardinality entities. A company with 40k invoices
-  pages 800 times, and each page loads all 40k invoices *and* walks their lines.
-- Each page also rebuilds `ReferenceIndex`, which loads the account, customer and
-  vendor lists again. So a page costs one transaction load plus up to three more.
+Optional `start_date` / `end_date` (yyyy-MM-dd) filter transaction bodies by
+document `Date` after load (fiscal / outer range windowing).
 
-Neither is a reason to hold the reads back — correctness first, and Bellwether
-will not notice — but do not point this at a real ledger before the id-list cache
-below exists.
+**Delete monitoring is not supported.** The Sage Peachtree SDK has no deleted-
+entity query (verified against 2026.1 SDK docs on the lab VM). Hard deletes would
+only be detectable by full-inventory id set-diff across syncs; we do not
+implement that. Explicit vendor `DELETE` write jobs still work.
 
-And the part already documented in `CLAUDE.md`: incremental filtering rests on
-`LastSavedAt`, which Sage leaves unset on records untouched since the company was
-created (29 of 29 vendors, 34 of 35 customers at Bellwether), while accounts
-ignore `updated_at` entirely. So today "incremental" means "full re-send, deduped
-on the primary key".
+## Initial-sync observability
 
-## The model to move to
+- Link `POST /sage-50/link-verify` returns `initial_sync: { completed_entities, pending_entities, total, completed }`.
+- When every initial entity job is COMPLETED: `isReady`, `isHistoricalReady`, side-refresh enqueue, and **`INITIAL_UPDATE` webhook** (`createInitialUpdateWebhooksJob`).
+- Tray `SyncStatus` shows records done/total from the in-memory job list.
 
-Two phases with explicit, observable state — not a cadence.
+## Still imperfect / follow-ups
 
-### Initial sync: one ordered pass, full history
+- Sage `LastSavedAt` still often null → connector includes untimestamped rows (safe over-fetch); hash cache reduces re-send volume.
+- Accounts still ignore `updated_at` on the Sage side.
+- Per-accounting-period multi-job historical batches (N windows per entity) not yet enqueued from Rutter — outer fiscal range params are supported when set.
+- Scorecard still scores enqueue-only fetchers poorly unless exempted.
 
-Order matters because the importer's mapping depends on it:
-
-```
-COMPANY_INFO → ACCOUNTS → CUSTOMERS, VENDORS → transactions (per fiscal period)
-```
-
-Cheapest way to get it: a `priority` int on `desktop_platform_jobs`, and
-`selectNextJob` ordering by `(priority ASC, updatedAt ASC)`. Same round-robin
-inside a stage, no round-robin across stages. The alternative — don't enqueue
-stage N+1 until stage N is `COMPLETED` — needs a scheduler that remembers where
-it was, which is more machinery for the same result.
-
-Completion becomes observable and cheap to define: the initial sync is done when
-every job for the item has reached `COMPLETED`. That is what to hang the webhook
-on, and what the tray UI should show as progress instead of a per-entity count.
-
-### Incremental: cutoff from the report, not the enqueue
-
-The fix is one change in `handleIngestListFetchJob`, and it removes defects 1 and
-2 together:
-
-- first page of a job arrives → open the `RefreshEntityRun`
-- page arrives without `next_cursor` → complete it
-- `error_message` arrives → mark it failed, so the cutoff does not advance
-
-`getEntityLastCompleted` then means the same thing for Sage 50 as for every cloud
-platform, and a failed job is retried over the window it actually missed.
-
-Keep the connector's "no timestamp ⇒ include" rule. It over-fetches, which is the
-safe direction, and Sage gives no alternative.
-
-Volume control, when transaction entities land: have the connector keep a
-per-entity `id → hash` cache under `%ProgramData%` and omit rows whose hash is
-unchanged. That turns a 100k-row re-send into a diff. It is purely a
-bandwidth/CPU saving on the customer's machine — Rutter's continuous-backfill
-hashing already suppresses the no-op updates server-side — so it is worth doing
-only once the row counts justify it, not now.
-
-### Paging that does not rescan
-
-Cache the ordered id list per `(job_id, entity)` for the life of the job, and
-load only the ids on the requested page. Keyed on `job_id` because a job
-re-served after a connector restart should just rebuild the list. This is what
-turns O(n²/50) back into O(n), and it needs no protocol change: Rutter is already
-sending `cursor` and `limit`.
-
-### Windowing for transactions
-
-Sage exposes `Company.Defaults.GeneralLedger.AccountingPeriods` as `(From, To)`
-pairs, and `COMPANY_INFO` now reports the outer range as
-`fiscalYearStart`/`fiscalYearEnd`. Fetch transactions one fiscal period at a time
-rather than as one unbounded list: bounded memory in a 32-bit process, resumable
-after a crash, and it maps onto Rutter's existing `windowedList` strategy shape
-instead of needing a new one.
-
-### Two decisions that are not the connector's to make
-
-**Refresh cadence.** `SAGE_50` is commented out of `ON_PREM_PLATFORMS` in
-`src/types.ts`, so it is side-refreshed on Rutter's schedule like a cloud
-platform. One machine, one Sage licence seat, one job at a time: the scheduler
-can enqueue faster than the customer's machine drains the queue. The per-entity
-`ENQUEUED` dedupe in `existingListFetchJobEnqueued` bounds duplicates per entity
-and nothing bounds the queue overall. Either move Sage 50 into
-`ON_PREM_PLATFORMS` (syncs only when something asks — but DualEntry bought a
-"continual connection", so that needs an explicit trigger), or keep the schedule
-and skip enqueueing while the item has any unfinished job.
-
-**Scorecard.** `scorecards/SAGE_50.txt` scores 6/18 with "Fetch response is not
-empty: 0 / 3" for all three entities, because an enqueue-only fetcher returns no
-data by construction. The harness assumes inline fetch. Desktop strategies need
-either an exemption or to be scored on the delivered job, otherwise the scorecard
-stays permanently red and stops meaning anything.
-
-## How to verify any of this
-
-Per entity, after a run:
+## How to verify
 
 ```sql
+select entity, type, started_at, completed_at
+from refresh_entity_runs where item_id = '<itemId>'
+order by started_at desc limit 20;
+
+select platform_entity, status, priority, parameters, updated_at
+from desktop_platform_jobs where item_id = '<itemId>'
+order by priority, updated_at;
+
 select platform_entity, count(*), count(platform_id)
 from platform_entities where item_id = '<itemId>' group by 1;
-
-select platform_entity, type, status, parameters, updated_at
-from desktop_platform_jobs where item_id = '<itemId>' order by updated_at;
 ```
-
-Counts that disagree mean the payload casing regressed (see `CLAUDE.md`). A job
-stuck `IN_PROGRESS` with an unchanging `updated_at` means the connector is not
-reporting — which Rutter will re-serve forever.

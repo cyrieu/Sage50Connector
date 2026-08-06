@@ -60,6 +60,8 @@
   <ItemGroup>
     <Compile Include="Helpers\CompanyManager.cs" />
     <Compile Include="Helpers\ConnectorConfig.cs" />
+    <Compile Include="Helpers\EntityHashCache.cs" />
+    <Compile Include="Helpers\JobIdListCache.cs" />
     <Compile Include="Helpers\ReferenceIndex.cs" />
     <Compile Include="Helpers\RuntimeEnvironment.cs" />
     <Compile Include="Helpers\Sage50Connector.cs" />
