@@ -79,13 +79,15 @@ export SAGE50_RELEASE_NOTES='Bug fixes and improved setup.'
 .claude/skills/sage50-iterate/scripts/release-via-ssh.sh
 ```
 
-That script:
+That script **always Authenticode-signs both artifacts** (this is not EXE-only):
 
 1. Verifies version files, clean tree, and `origin/rutter/productionize-v1`.
 2. Stops the connector on the VM and builds Release x86 artifacts.
 3. Copies the unsigned EXE to the Mac and signs with Azure Artifact Signing.
 4. Returns the signed EXE and packages the MSI (signed EXE embedded).
-5. Signs the MSI, returns it, verifies Authenticode on the VM.
+5. **Signs the MSI** with the same Trusted Signing profile, returns it, and
+   verifies **both** EXE and MSI with Windows `Get-AuthenticodeSignature`
+   (`status: Valid`).
 6. Writes local artifacts under `artifacts/sage50-release-<git-sha>/`.
 7. **Publishes** (unless `SAGE50_SKIP_PUBLISH=1`) via `publish-release.sh`:
    - Versioned MSI:
@@ -93,7 +95,27 @@ That script:
    - Update manifest:
      `s3://…/sage50-connector/release.json`
    - Link first-install zip:
-     `s3://…/Sage 50 Connector Installer.zip`
+     `s3://…/Sage 50 Connector Installer.zip` (contains **that signed MSI**)
+
+Never publish an unsigned `build.ps1` MSI to those S3 keys. The zip is not
+itself Authenticode-signed (zips cannot be); SmartScreen evaluates the MSI
+inside. Prefer pointing production `SAGE_50_INSTALLER_URL` at the versioned
+`.msi` URL rather than the zip so customers download a signed installer
+directly.
+
+**SmartScreen:** a Valid Authenticode signature is required and is what this
+release produces. It does **not** instantly hide “Windows protected your PC.”
+Microsoft still needs publisher reputation. Until that builds, customers click
+**More info → Run anyway**. Do not disable SmartScreen. Do not ship unsigned
+to “work around” it.
+
+After publish, confirm the public MSI still has a signature:
+
+```bash
+jsign extract --format PEM RutterSage50ConnectorSetup-<ver>.msi
+# On the VM:
+Get-AuthenticodeSignature RutterSage50ConnectorSetup.msi | Format-List Status, SignerCertificate
+```
 
 ### Sign-only (no publish)
 

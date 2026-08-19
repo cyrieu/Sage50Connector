@@ -185,10 +185,17 @@ and certificate profile as parameters (or `SAGE50_SIGNING_*` env vars). Defaults
 are empty so nothing internal is hard-coded in the public scripts.
 
 Both paths use the same fixed order: rebuild, sign `Sage50Connector.exe`, package
-the MSI without rebuilding project references, sign the MSI, verify both
-Authenticode signatures, and print SHA-256 checksums. Do not rebuild, re-sign,
-or modify the artifacts afterward. Signing changes the executable's MD5, so
-perform Sage approval and final testing against that exact signed EXE.
+the MSI without rebuilding project references, **sign the MSI**, verify both
+Authenticode signatures (`Get-AuthenticodeSignature` status Valid), and print
+SHA-256 checksums. Do not rebuild, re-sign, or modify the artifacts afterward.
+Signing changes the executable's MD5, so perform Sage approval and final testing
+against that exact signed EXE.
+
+The Link zip (`Sage 50 Connector Installer.zip`) is that signed MSI, zipped.
+A zip cannot carry Authenticode; SmartScreen looks at the MSI. A Valid
+signature is required but does not by itself hide “Windows protected your PC”
+until Microsoft has publisher reputation. Do not publish unsigned MSIs to S3
+to dodge that dialog.
 
 ## Sage authorization — the thing that will waste your afternoon
 

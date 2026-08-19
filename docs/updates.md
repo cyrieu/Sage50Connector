@@ -59,7 +59,14 @@ Published JSON (example):
 |---|---|
 | `sage50-connector/RutterSage50ConnectorSetup-<ver>.msi` | Immutable updater target |
 | `sage50-connector/release.json` | Manifest for Check for updates |
-| `Sage 50 Connector Installer.zip` | Link first-install download |
+| `Sage 50 Connector Installer.zip` | Link first-install download (**signed MSI** at zip root) |
+
+Customer Link/updater artifacts must be Authenticode-signed (EXE **and** MSI)
+via `release-via-ssh.sh`. Unsigned `build.ps1` MSIs must not be uploaded to
+these keys. SmartScreen can still warn on a signed MSI until the publisher has
+reputation; that is not a missing-signature bug. Prefer
+`SAGE_50_INSTALLER_URL` pointing at the versioned `.msi` URL rather than the
+zip.
 
 ```bash
 # Full customer release (sign + publish)
