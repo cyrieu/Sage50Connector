@@ -98,7 +98,7 @@ Backend env (optional):
 - Tray → **Check for updates…**
 - Background check ~every 6h (throttled to 24h between successful comparisons)
 - Balloon when optional/required update is found
-- Status form shows version + update line
+- Status form shows version + update line and an **Update to &lt;version&gt;** button
 - Apply: download MSI → SHA-256 verify → elevated `msiexec` → restart EXE
 
 ## Forced updates
@@ -107,7 +107,9 @@ Set `min_version` in the manifest higher than some fielded builds. Those
 installs see **Required update** and are prompted harder; we do not hard-kill
 sync yet (so support can still diagnose).
 
-## First install (unchanged)
+## First install
 
-Link → `/sage-50/installer` → zip of latest MSI → company select deep link →
-Sage Always allow.
+Link reads `/sage-50/connector-release` and downloads the manifest's immutable,
+versioned MSI URL with the release version in the browser cache key. If release
+metadata is unavailable, it falls back to the setup session's legacy
+`/sage-50/installer` URL. Company selection and Sage approval are unchanged.

@@ -25,8 +25,10 @@ namespace Sage50Connector.Ui
         private readonly ListView entityList = new ListView();
         private readonly Panel authPanel = new Panel();
         private readonly Button syncNowButton = new Button();
+        private readonly Button updateButton = new Button();
 
         public event EventHandler SyncNowRequested;
+        public event EventHandler UpdateRequested;
 
         public StatusForm()
         {
@@ -84,6 +86,15 @@ namespace Sage50Connector.Ui
             logsButton.Text = "Open logs";
             logsButton.Click += (s, e) => OpenLogFolder();
 
+            updateButton.SetBounds(230, 418, 116, 26);
+            updateButton.Text = "Install update";
+            updateButton.Visible = false;
+            updateButton.Click += (s, e) =>
+            {
+                EventHandler h = UpdateRequested;
+                if (h != null) h(this, EventArgs.Empty);
+            };
+
             Button closeButton = new Button();
             closeButton.SetBounds(354, 418, 100, 26);
             closeButton.Text = "Close";
@@ -93,7 +104,7 @@ namespace Sage50Connector.Ui
             {
                 companyLabel, stateLabel, progress, authorizationLabel, lastSyncLabel,
                 versionLabel, updateLabel, entityList,
-                authPanel, syncNowButton, logsButton, closeButton,
+                authPanel, syncNowButton, logsButton, updateButton, closeButton,
             });
 
             // Closing the window should leave the connector running in the tray.
@@ -246,6 +257,14 @@ namespace Sage50Connector.Ui
                     + "Updates always require re-approval in Sage 50.";
                 updateLabel.ForeColor = SystemColors.GrayText;
             }
+
+            bool updateAvailable = s.UpdateAvailability == UpdateAvailability.RequiredUpdate
+                || s.UpdateAvailability == UpdateAvailability.OptionalUpdate;
+            updateButton.Visible = updateAvailable;
+            updateButton.Enabled = updateAvailable;
+            updateButton.Text = string.IsNullOrWhiteSpace(s.AvailableVersion)
+                ? "Install update"
+                : "Update to " + s.AvailableVersion;
 
             entityList.BeginUpdate();
             entityList.Items.Clear();

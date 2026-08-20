@@ -59,6 +59,7 @@ namespace Sage50Connector.Ui
                 throw new InvalidOperationException("Could not create the connector status window handle.");
             }
             statusForm.SyncNowRequested += (s, e) => RequestSyncNow();
+            statusForm.UpdateRequested += async (s, e) => await CheckForUpdatesInteractiveAsync();
 
             // The sync loop owns a Sage session, so keep it off the UI thread.
             Task.Run(() => Program.RunSyncLoopHeadless(syncNowSignal));
