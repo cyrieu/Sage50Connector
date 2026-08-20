@@ -92,12 +92,9 @@ try {
         throw "Sage COM credential not found at '$CredentialPath'. Run Set-GeneralLedgerComCredential.ps1 as the interactive Sage user."
     }
     $credential = Import-Clixml -LiteralPath $CredentialPath
-    if ($credential.UserName -ne 'Peachtree') {
-        throw "The Sage external-data user must be 'Peachtree'."
-    }
     $plainPassword = $credential.GetNetworkCredential().Password
-    if ([string]::IsNullOrWhiteSpace($plainPassword)) {
-        throw 'The Sage external-data password cannot be blank.'
+    if ([string]::IsNullOrWhiteSpace($credential.UserName) -or [string]::IsNullOrWhiteSpace($plainPassword)) {
+        throw 'The Sage COM third-party account name and password cannot be blank.'
     }
 
     # Sage's COM sample uses Login.GetApplication followed by

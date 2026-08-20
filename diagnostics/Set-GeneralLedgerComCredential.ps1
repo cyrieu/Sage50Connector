@@ -6,18 +6,15 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-Write-Host 'Enter the Sage 50 external-data password configured under:'
-Write-Host 'Maintain > Users > Set Up Security > Data Access/Crystal Reports.'
-Write-Host 'The user ID is always Peachtree and the password is at most eight characters.'
+Write-Host 'Enter the Sage-issued COM third-party account name and password.'
+Write-Host 'These are partner credentials, not a Sage company user and not the'
+Write-Host 'Data Access/Crystal Reports credential.'
 
-$credential = Get-Credential -UserName 'Peachtree' -Message 'Sage 50 external-data credential'
+$credential = Get-Credential -Message 'Sage 50 COM third-party account credential'
 if ($null -eq $credential) { throw 'Credential entry was cancelled.' }
-if ($credential.UserName -ne 'Peachtree') { throw "The user ID must be 'Peachtree'." }
+if ([string]::IsNullOrWhiteSpace($credential.UserName)) { throw 'The third-party account name cannot be blank.' }
 if ([string]::IsNullOrWhiteSpace($credential.GetNetworkCredential().Password)) {
-    throw 'The Sage external-data password cannot be blank.'
-}
-if ($credential.GetNetworkCredential().Password.Length -gt 8) {
-    throw 'Sage external-data passwords are limited to eight characters.'
+    throw 'The third-party account password cannot be blank.'
 }
 
 $directory = Split-Path -Parent $CredentialPath
@@ -35,4 +32,4 @@ $rule = New-Object Security.AccessControl.FileSystemAccessRule(
 $acl.SetAccessRule($rule)
 Set-Acl -LiteralPath $CredentialPath -AclObject $acl
 
-Write-Host ('Encrypted Sage COM credential saved to ' + $CredentialPath)
+Write-Host ('Encrypted Sage COM partner credential saved to ' + $CredentialPath)
