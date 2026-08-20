@@ -185,6 +185,12 @@ try {
     $exporter.Export()
 
     $rawRows = @(Import-Csv -LiteralPath $csvPath)
+    $rawHeaders = if ($rawRows.Count -gt 0) { @($rawRows[0].PSObject.Properties.Name) } else { @() }
+    $rawFirstRow = if ($rawRows.Count -gt 0) {
+        $first = [ordered]@{}
+        foreach ($property in $rawRows[0].PSObject.Properties) { $first[$property.Name] = $property.Value }
+        [pscustomobject]$first
+    } else { $null }
     $exportedRows = foreach ($raw in $rawRows) {
         $journalPostOrderText = Read-Field $raw @('JournalPostOrder', 'Journal Post Order')
         $journalRowIndexText = Read-Field $raw @('JournalRowIndex', 'Journal Row Index')
@@ -277,6 +283,8 @@ try {
         exporterDateEndInclusive = $EndDate.Date.AddDays(-1).ToString('yyyy-MM-dd')
         exporterDateFilterSupported = $exporterDateFilterSupported
         exportedRawRowCount = [int](($exportedRows | Measure-Object).Count)
+        rawHeaders = $rawHeaders
+        rawFirstRow = $rawFirstRow
         rawRowCount = [int](($rows | Measure-Object).Count)
         postingRowCount = [int](($postingRows | Measure-Object).Count)
         excludedRowCount = [int](($rows | Where-Object { -not $_.includeInGL } | Measure-Object).Count)
