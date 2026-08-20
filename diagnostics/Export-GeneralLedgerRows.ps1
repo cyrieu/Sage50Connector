@@ -261,7 +261,7 @@ try {
         $comparison = [pscustomobject]@{
             priorRowCount = $priorRowsById.Count
             currentRowCount = $currentIds.Count
-            retainedRowGuids = @($currentIds | Where-Object { $priorRowsById.ContainsKey($_) }).Count
+            retainedRowGuids = (@($currentIds | Where-Object { $priorRowsById.ContainsKey($_) })).Count
             addedRowGuids = @($currentIds | Where-Object { -not $priorRowsById.ContainsKey($_) })
             removedRowGuids = @($priorRowsById.Keys | Where-Object { $currentIds -notcontains $_ })
         }
@@ -279,11 +279,11 @@ try {
         exportedRawRowCount = $exportedRows.Count
         rawRowCount = $rows.Count
         postingRowCount = $postingRows.Count
-        excludedRowCount = @($rows | Where-Object { -not $_.includeInGL }).Count
+        excludedRowCount = (@($rows | Where-Object { -not $_.includeInGL })).Count
         transactionCount = $transactions.Count
-        missingPostingOrderCount = @($postingRows | Where-Object { $null -eq $_.journalPostOrder }).Count
-        zeroPostingOrderCount = @($postingRows | Where-Object { $_.journalPostOrder -eq 0 }).Count
-        missingRowGuidCount = @($postingRows | Where-Object { [string]::IsNullOrWhiteSpace($_.id) }).Count
+        missingPostingOrderCount = (@($postingRows | Where-Object { $null -eq $_.journalPostOrder })).Count
+        zeroPostingOrderCount = (@($postingRows | Where-Object { $_.journalPostOrder -eq 0 })).Count
+        missingRowGuidCount = (@($postingRows | Where-Object { [string]::IsNullOrWhiteSpace($_.id) })).Count
         duplicateRowGuids = $duplicateRowGuids
         duplicatePostingOrdersAcrossTypes = $duplicatePostingOrdersAcrossTypes
         inconsistentPostingOrders = @($transactions | Where-Object { -not $_.headerConsistent } | Select-Object -ExpandProperty journalPostOrder)
