@@ -276,11 +276,11 @@ try {
         endDateExclusive = $EndDate.Date.ToString('yyyy-MM-dd')
         exporterDateEndInclusive = $EndDate.Date.AddDays(-1).ToString('yyyy-MM-dd')
         exporterDateFilterSupported = $exporterDateFilterSupported
-        exportedRawRowCount = $exportedRows.Count
-        rawRowCount = $rows.Count
-        postingRowCount = $postingRows.Count
+        exportedRawRowCount = [int](($exportedRows | Measure-Object).Count)
+        rawRowCount = [int](($rows | Measure-Object).Count)
+        postingRowCount = [int](($postingRows | Measure-Object).Count)
         excludedRowCount = [int](($rows | Where-Object { -not $_.includeInGL } | Measure-Object).Count)
-        transactionCount = $transactions.Count
+        transactionCount = [int](($transactions | Measure-Object).Count)
         missingPostingOrderCount = [int](($postingRows | Where-Object { $null -eq $_.journalPostOrder } | Measure-Object).Count)
         zeroPostingOrderCount = [int](($postingRows | Where-Object { $_.journalPostOrder -eq 0 } | Measure-Object).Count)
         missingRowGuidCount = [int](($postingRows | Where-Object { [string]::IsNullOrWhiteSpace($_.id) } | Measure-Object).Count)
