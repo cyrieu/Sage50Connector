@@ -11,7 +11,9 @@ param(
 
     [string]$OutputPath = "$env:ProgramData\Rutter\Sage50Connector\diagnostics\general-ledger-rows.json",
 
-    [string]$CompareTo
+    [string]$CompareTo,
+
+    [string]$CredentialPath = "$env:ProgramData\Rutter\Sage50Connector\diagnostics\sage-com-credential.xml"
 )
 
 $ErrorActionPreference = 'Stop'
@@ -82,8 +84,22 @@ $csvPath = $null
 $previousCompanyGuid = $null
 $previousCompanyWasOpen = $false
 $openedTargetCompany = $false
+$credential = $null
+$plainPassword = $null
 
 try {
+    if (-not (Test-Path -LiteralPath $CredentialPath)) {
+        throw "Sage COM credential not found at '$CredentialPath'. Run Set-GeneralLedgerComCredential.ps1 as the interactive Sage user."
+    }
+    $credential = Import-Clixml -LiteralPath $CredentialPath
+    if ($credential.UserName -ne 'Peachtree') {
+        throw "The Sage external-data user must be 'Peachtree'."
+    }
+    $plainPassword = $credential.GetNetworkCredential().Password
+    if ([string]::IsNullOrWhiteSpace($plainPassword)) {
+        throw 'The Sage external-data password cannot be blank.'
+    }
+
     # Sage's COM sample uses Login.GetApplication followed by
     # Application.CreateExporter. Late binding keeps the diagnostic independent
     # of Sage's versioned Interop.PeachwServer assembly.
@@ -99,7 +115,8 @@ try {
     if ($null -eq $login) {
         $login = New-Object -ComObject 'PeachtreeAccounting.Login.33'
     }
-    $application = $login.GetApplication('', '')
+    $application = $login.GetApplication($credential.UserName, $plainPassword)
+    $plainPassword = $null
 
     $previousCompanyWasOpen = [bool]$application.CompanyIsOpen
     if ($previousCompanyWasOpen) {
@@ -255,6 +272,8 @@ try {
     Write-Output ('Diagnostic output: ' + $OutputPath)
 }
 finally {
+    $plainPassword = $null
+    $credential = $null
     Release-ComObject $exporter
     if ($null -ne $application -and $openedTargetCompany) {
         try { $application.CloseCompany() } catch { Write-Warning $_.Exception.Message }

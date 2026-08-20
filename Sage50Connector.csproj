@@ -95,6 +95,8 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
+    <None Include="diagnostics\Export-GeneralLedgerRows.ps1" />
+    <None Include="diagnostics\Set-GeneralLedgerComCredential.ps1" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="Sage_50cloud_logo.ico" />
