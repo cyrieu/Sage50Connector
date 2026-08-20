@@ -4,6 +4,9 @@ param(
     [Guid]$CompanyGuid,
 
     [Parameter(Mandatory = $true)]
+    [string]$CompanyName,
+
+    [Parameter(Mandatory = $true)]
     [DateTime]$StartDate,
 
     [Parameter(Mandatory = $true)]
@@ -86,6 +89,10 @@ $previousCompanyWasOpen = $false
 $openedTargetCompany = $false
 $credential = $null
 $plainPassword = $null
+$companyInfoList = $null
+$companyInfo = $null
+$comCompanyGuid = $null
+$comCompanyPath = $null
 
 try {
     if (-not (Test-Path -LiteralPath $CredentialPath)) {
@@ -121,10 +128,39 @@ try {
     }
 
     if (-not $previousCompanyWasOpen -or
-        -not [string]::Equals($previousCompanyGuid, $CompanyGuid.ToString(), [StringComparison]::OrdinalIgnoreCase)) {
+        -not [string]::Equals([string]$application.CurrentCompanyName, $CompanyName, [StringComparison]::Ordinal)) {
         if ($previousCompanyWasOpen) { $application.CloseCompany() }
-        $application.OpenCompanyByGUID($CompanyGuid.ToString())
+
+        # COM and Sage.Peachtree.API use different company GUID namespaces.
+        # Resolve the COM identity by Sage's exact company name rather than
+        # passing the stable .NET SDK GUID to OpenCompanyByGUID.
+        $companyInfoList = $application.GetCompanyInfoList([string]$application.DataPath)
+        for ($index = 0; $index -lt [int]$companyInfoList.Count; $index++) {
+            $companyInfo = $companyInfoList.Item($index)
+            try {
+                if ([string]::Equals([string]$companyInfo.Name, $CompanyName, [StringComparison]::Ordinal)) {
+                    $comCompanyGuid = [string]$companyInfo.GUID
+                    $comCompanyPath = [string]$companyInfo.Path
+                    break
+                }
+            } finally {
+                Release-ComObject $companyInfo
+                $companyInfo = $null
+            }
+        }
+        Release-ComObject $companyInfoList
+        $companyInfoList = $null
+
+        if ([string]::IsNullOrWhiteSpace($comCompanyGuid)) {
+            throw "The COM company list contains no company named '$CompanyName'."
+        }
+        if ($application.CheckCompanyUsesPasswords($comCompanyPath)) {
+            throw "The COM API requires a Sage company-user login to open password-protected company '$CompanyName'."
+        }
+        $application.OpenCompanyByGUID($comCompanyGuid)
         $openedTargetCompany = $true
+    } else {
+        $comCompanyGuid = [string]$application.CurrentCompanyGUID
     }
 
     # Numeric values are from the Sage 50 2026 type library. The public COM
@@ -230,6 +266,8 @@ try {
     $result = [pscustomobject]@{
         generatedAt = [DateTime]::UtcNow.ToString('o')
         companyGuid = $CompanyGuid.ToString()
+        comCompanyGuid = $comCompanyGuid
+        companyName = $CompanyName
         startDateInclusive = $StartDate.Date.ToString('yyyy-MM-dd')
         endDateExclusive = $EndDate.Date.ToString('yyyy-MM-dd')
         exporterDateEndInclusive = $EndDate.Date.AddDays(-1).ToString('yyyy-MM-dd')
@@ -272,6 +310,8 @@ finally {
     $plainPassword = $null
     $credential = $null
     Release-ComObject $exporter
+    Release-ComObject $companyInfo
+    Release-ComObject $companyInfoList
     if ($null -ne $application -and $openedTargetCompany) {
         try { $application.CloseCompany() } catch { Write-Warning $_.Exception.Message }
         if ($previousCompanyWasOpen -and -not [string]::IsNullOrWhiteSpace($previousCompanyGuid)) {
