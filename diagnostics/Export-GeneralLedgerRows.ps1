@@ -61,6 +61,21 @@ function Parse-Decimal {
     throw "Could not parse General Ledger amount '$Value'."
 }
 
+function Parse-Date {
+    param([string]$Value)
+    if ([string]::IsNullOrWhiteSpace($Value)) { return $null }
+    $parsed = [DateTime]::MinValue
+    if ([DateTime]::TryParse($Value, [Globalization.CultureInfo]::CurrentCulture,
+        [Globalization.DateTimeStyles]::None, [ref]$parsed)) {
+        return $parsed.Date
+    }
+    if ([DateTime]::TryParse($Value, [Globalization.CultureInfo]::InvariantCulture,
+        [Globalization.DateTimeStyles]::None, [ref]$parsed)) {
+        return $parsed.Date
+    }
+    throw "Could not parse General Ledger date '$Value'."
+}
+
 function Get-JournalTypeName {
     param([int]$JournalType)
     $names = @{
@@ -87,6 +102,7 @@ $csvPath = $null
 $credential = $null
 $plainPassword = $null
 $comCompanyGuid = $null
+$exporterDateFilterSupported = $true
 
 try {
     if (-not (Test-Path -LiteralPath $CredentialPath)) {
@@ -157,11 +173,19 @@ try {
     # Sage's exporter accepts an inclusive date range. Subtracting one day from
     # the exclusive upper bound gives the connector unambiguous half-open
     # semantics: StartDate <= posting date < EndDate.
-    $exporter.SetDateFilterValue($dateFilterRange, $StartDate.Date, $EndDate.Date.AddDays(-1))
+    try {
+        $exporter.SetDateFilterValue($dateFilterRange, $StartDate.Date, $EndDate.Date.AddDays(-1))
+    } catch [Runtime.InteropServices.COMException] {
+        if (('{0:X8}' -f $_.Exception.HResult) -ne '800436FD') { throw }
+        # Sage 50 2026.1 explicitly reports that GeneralLedgerRows does not
+        # support date-range filtering. Export all rows and apply the requested
+        # half-open window locally so the diagnostic can still validate the GL.
+        $exporterDateFilterSupported = $false
+    }
     $exporter.Export()
 
     $rawRows = @(Import-Csv -LiteralPath $csvPath)
-    $rows = foreach ($raw in $rawRows) {
+    $exportedRows = foreach ($raw in $rawRows) {
         $journalPostOrderText = Read-Field $raw @('JournalPostOrder', 'Journal Post Order')
         $journalRowIndexText = Read-Field $raw @('JournalRowIndex', 'Journal Row Index')
         $journalTypeText = Read-Field $raw @('Type')
@@ -172,7 +196,10 @@ try {
             journalRowIndex = if ([string]::IsNullOrWhiteSpace($journalRowIndexText)) { $null } else { [int]$journalRowIndexText }
             accountId = Read-Field $raw @('GLAccountId', 'GL Account ID')
             accountGuid = Read-Field $raw @('GLAccountGUID', 'GL Account GUID')
-            date = Read-Field $raw @('Date')
+            date = $(
+                $parsedDate = Parse-Date (Read-Field $raw @('Date'))
+                if ($null -eq $parsedDate) { $null } else { $parsedDate.ToString('yyyy-MM-dd') }
+            )
             journalType = if ([string]::IsNullOrWhiteSpace($journalTypeText)) { $null } else { [int]$journalTypeText }
             reference = Read-Field $raw @('TransactionReference', 'Transaction Reference')
             description = Read-Field $raw @('Description')
@@ -184,6 +211,12 @@ try {
             includeInGL = $includeInGlText -match '^(?i:true|1|yes)$'
         }
     }
+
+    $rows = @($exportedRows | Where-Object {
+        if ([string]::IsNullOrWhiteSpace($_.date)) { return $false }
+        $date = [DateTime]::ParseExact($_.date, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)
+        return $date -ge $StartDate.Date -and $date -lt $EndDate.Date
+    })
 
     $postingRows = @($rows | Where-Object { $_.includeInGL })
     $groups = @($postingRows | Group-Object journalPostOrder)
@@ -242,6 +275,8 @@ try {
         startDateInclusive = $StartDate.Date.ToString('yyyy-MM-dd')
         endDateExclusive = $EndDate.Date.ToString('yyyy-MM-dd')
         exporterDateEndInclusive = $EndDate.Date.AddDays(-1).ToString('yyyy-MM-dd')
+        exporterDateFilterSupported = $exporterDateFilterSupported
+        exportedRawRowCount = $exportedRows.Count
         rawRowCount = $rows.Count
         postingRowCount = $postingRows.Count
         excludedRowCount = @($rows | Where-Object { -not $_.includeInGL }).Count
@@ -270,7 +305,8 @@ try {
     }
     $result | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $OutputPath -Encoding UTF8
 
-    $result | Select-Object generatedAt, startDateInclusive, endDateExclusive, rawRowCount,
+    $result | Select-Object generatedAt, startDateInclusive, endDateExclusive,
+        exporterDateFilterSupported, exportedRawRowCount, rawRowCount,
         postingRowCount, excludedRowCount, transactionCount, missingPostingOrderCount,
         zeroPostingOrderCount, missingRowGuidCount, duplicateRowGuids,
         duplicatePostingOrdersAcrossTypes, inconsistentPostingOrders, journalTypes, comparison |
