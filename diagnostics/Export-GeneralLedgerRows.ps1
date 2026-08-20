@@ -75,6 +75,7 @@ function Get-JournalTypeName {
 }
 
 $login = $null
+$loginSelector = $null
 $application = $null
 $exporter = $null
 $csvPath = $null
@@ -86,7 +87,18 @@ try {
     # Sage's COM sample uses Login.GetApplication followed by
     # Application.CreateExporter. Late binding keeps the diagnostic independent
     # of Sage's versioned Interop.PeachwServer assembly.
-    $login = New-Object -ComObject 'PeachtreeAccounting.Login.33'
+    # When Sage is already running, Sage's ManagedCOM sample obtains the login
+    # object through LoginSelector. Creating a fresh Login object can return
+    # E_ACCESSDENIED even for the same interactive Windows user.
+    try {
+        $loginSelector = New-Object -ComObject 'PeachtreeAccounting.LoginSelector'
+        $login = $loginSelector.GetCurrentLoginObject()
+    } catch {
+        $login = $null
+    }
+    if ($null -eq $login) {
+        $login = New-Object -ComObject 'PeachtreeAccounting.Login.33'
+    }
     $application = $login.GetApplication('', '')
 
     $previousCompanyWasOpen = [bool]$application.CompanyIsOpen
@@ -252,6 +264,7 @@ finally {
     }
     Release-ComObject $application
     Release-ComObject $login
+    Release-ComObject $loginSelector
     if ($null -ne $csvPath -and (Test-Path -LiteralPath $csvPath)) {
         Remove-Item -LiteralPath $csvPath -Force
     }
