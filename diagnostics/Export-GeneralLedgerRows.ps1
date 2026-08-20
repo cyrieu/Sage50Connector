@@ -50,7 +50,9 @@ function Read-Field {
 function Parse-Decimal {
     param([string]$Value)
     if ([string]::IsNullOrWhiteSpace($Value)) { return [decimal]0 }
-    $styles = [Globalization.NumberStyles]::Number -bor [Globalization.NumberStyles]::AllowCurrencySymbol
+    $styles = [Globalization.NumberStyles]::Number -bor
+        [Globalization.NumberStyles]::AllowCurrencySymbol -bor
+        [Globalization.NumberStyles]::AllowParentheses
     $parsed = [decimal]0
     if ([decimal]::TryParse($Value, $styles, [Globalization.CultureInfo]::CurrentCulture, [ref]$parsed)) {
         return $parsed
@@ -92,6 +94,24 @@ function Get-JournalTypeName {
     }
     if ($names.ContainsKey($JournalType)) { return $names[$JournalType] }
     return 'unknown'
+}
+
+function Get-JournalTypeValue {
+    param([string]$JournalCode)
+    $normalized = if ($null -eq $JournalCode) { '' } else { $JournalCode.Trim().ToUpperInvariant() }
+    switch ($normalized) {
+        'GENJ' { return 0 }
+        'CRJ' { return 1 }
+        'CDJ' { return 2 }
+        'SJ' { return 3 }
+        'PJ' { return 4 }
+        'PAYJ' { return 5 }
+        'COGS' { return 6 }
+        'IAJ' { return 7 }
+        'AAJ' { return 8 }
+        'BZIJ' { return 9 }
+        default { return $null }
+    }
 }
 
 $login = $null
@@ -192,28 +212,35 @@ try {
         [pscustomobject]$first
     } else { $null }
     $exportedRows = foreach ($raw in $rawRows) {
-        $journalPostOrderText = Read-Field $raw @('JournalPostOrder', 'Journal Post Order')
+        $journalPostOrderText = Read-Field $raw @('JournalPostOrder', 'Journal Post Order', 'Journal Hdr Postorder')
         $journalRowIndexText = Read-Field $raw @('JournalRowIndex', 'Journal Row Index')
-        $journalTypeText = Read-Field $raw @('Type')
-        $includeInGlText = Read-Field $raw @('IncludeInGL', 'Include In GL')
+        $journalTypeText = Read-Field $raw @('Type', 'Jrnl')
+        $includeInGlText = Read-Field $raw @('IncludeInGL', 'Include In GL', 'Include In GL?')
+        $journalTypeValue = 0
+        $journalType = if ([int]::TryParse($journalTypeText, [ref]$journalTypeValue)) {
+            $journalTypeValue
+        } else {
+            Get-JournalTypeValue $journalTypeText
+        }
 
         [pscustomobject]@{
             journalPostOrder = if ([string]::IsNullOrWhiteSpace($journalPostOrderText)) { $null } else { [long]$journalPostOrderText }
             journalRowIndex = if ([string]::IsNullOrWhiteSpace($journalRowIndexText)) { $null } else { [int]$journalRowIndexText }
-            accountId = Read-Field $raw @('GLAccountId', 'GL Account ID')
-            accountGuid = Read-Field $raw @('GLAccountGUID', 'GL Account GUID')
+            accountId = Read-Field $raw @('GLAccountId', 'GL Account ID', 'Account ID')
+            accountGuid = Read-Field $raw @('GLAccountGUID', 'GL Account GUID', 'General Ledger Account GUID')
             date = $(
-                $parsedDate = Parse-Date (Read-Field $raw @('Date'))
+                $parsedDate = Parse-Date (Read-Field $raw @('Date', 'Transaction Date'))
                 if ($null -eq $parsedDate) { $null } else { $parsedDate.ToString('yyyy-MM-dd') }
             )
-            journalType = if ([string]::IsNullOrWhiteSpace($journalTypeText)) { $null } else { [int]$journalTypeText }
-            reference = Read-Field $raw @('TransactionReference', 'Transaction Reference')
-            description = Read-Field $raw @('Description')
+            journalType = $journalType
+            journalTypeCode = $journalTypeText
+            reference = Read-Field $raw @('TransactionReference', 'Transaction Reference', 'Reference')
+            description = Read-Field $raw @('Description', 'Trans Description')
             jobId = Read-Field $raw @('JobId', 'Job ID')
             jobGuid = Read-Field $raw @('JobGUID', 'Job GUID')
-            amount = Parse-Decimal (Read-Field $raw @('TransactionAmount', 'Transaction Amount'))
-            dateCleared = Read-Field $raw @('DateCleared', 'Date Cleared')
-            id = Read-Field $raw @('GUID')
+            amount = Parse-Decimal (Read-Field $raw @('TransactionAmount', 'Transaction Amount', 'Transaction Amount as DR/CR'))
+            dateCleared = Read-Field $raw @('DateCleared', 'Date Cleared', 'Cleared Date')
+            id = Read-Field $raw @('GUID', 'GL GUID')
             includeInGL = $includeInGlText -match '^(?i:true|1|yes)$'
         }
     }
@@ -230,24 +257,26 @@ try {
         $ordered = @($group.Group | Sort-Object journalRowIndex, id)
         $first = $ordered[0]
         $types = @($ordered.journalType | Sort-Object -Unique)
+        $typeCodes = @($ordered.journalTypeCode | Sort-Object -Unique)
         $dates = @($ordered.date | Sort-Object -Unique)
         $references = @($ordered.reference | Sort-Object -Unique)
         [pscustomobject]@{
             id = if ($null -eq $first.journalPostOrder) { $null } else { 'gl:' + $first.journalPostOrder }
             journalPostOrder = $first.journalPostOrder
             journalTypes = $types
+            journalTypeCodes = $typeCodes
             journalTypeNames = @($types | ForEach-Object { Get-JournalTypeName $_ })
             dates = $dates
             references = $references
             descriptions = @($ordered.description | Sort-Object -Unique)
             amount = [decimal](($ordered | Measure-Object amount -Sum).Sum)
-            headerConsistent = $types.Count -eq 1 -and $dates.Count -eq 1 -and $references.Count -eq 1
+            headerConsistent = $typeCodes.Count -eq 1 -and $dates.Count -eq 1 -and $references.Count -eq 1
             lines = $ordered
         }
     }
 
     $duplicatePostingOrdersAcrossTypes = @(
-        $transactions | Where-Object { $_.journalTypes.Count -gt 1 } | Select-Object -ExpandProperty journalPostOrder
+        $transactions | Where-Object { $_.journalTypeCodes.Count -gt 1 } | Select-Object -ExpandProperty journalPostOrder
     )
     $duplicateRowGuids = @(
         $postingRows | Where-Object { -not [string]::IsNullOrWhiteSpace($_.id) } |
@@ -295,10 +324,12 @@ try {
         duplicateRowGuids = $duplicateRowGuids
         duplicatePostingOrdersAcrossTypes = $duplicatePostingOrdersAcrossTypes
         inconsistentPostingOrders = @($transactions | Where-Object { -not $_.headerConsistent } | Select-Object -ExpandProperty journalPostOrder)
-        journalTypes = @($postingRows | Group-Object journalType | Sort-Object Name | ForEach-Object {
+        journalTypes = @($postingRows | Group-Object journalTypeCode | Sort-Object Name | ForEach-Object {
+            $typeValue = @($_.Group | Select-Object -ExpandProperty journalType -Unique | Where-Object { $null -ne $_ }) | Select-Object -First 1
             [pscustomobject]@{
-                value = [int]$_.Name
-                name = Get-JournalTypeName ([int]$_.Name)
+                code = $_.Name
+                value = $typeValue
+                name = if ($null -eq $typeValue) { 'unknown' } else { Get-JournalTypeName $typeValue }
                 rowCount = $_.Count
                 amount = [decimal](($_.Group | Measure-Object amount -Sum).Sum)
             }
