@@ -279,11 +279,11 @@ try {
         exportedRawRowCount = $exportedRows.Count
         rawRowCount = $rows.Count
         postingRowCount = $postingRows.Count
-        excludedRowCount = (@($rows | Where-Object { -not $_.includeInGL })).Count
+        excludedRowCount = [int](($rows | Where-Object { -not $_.includeInGL } | Measure-Object).Count)
         transactionCount = $transactions.Count
-        missingPostingOrderCount = (@($postingRows | Where-Object { $null -eq $_.journalPostOrder })).Count
-        zeroPostingOrderCount = (@($postingRows | Where-Object { $_.journalPostOrder -eq 0 })).Count
-        missingRowGuidCount = (@($postingRows | Where-Object { [string]::IsNullOrWhiteSpace($_.id) })).Count
+        missingPostingOrderCount = [int](($postingRows | Where-Object { $null -eq $_.journalPostOrder } | Measure-Object).Count)
+        zeroPostingOrderCount = [int](($postingRows | Where-Object { $_.journalPostOrder -eq 0 } | Measure-Object).Count)
+        missingRowGuidCount = [int](($postingRows | Where-Object { [string]::IsNullOrWhiteSpace($_.id) } | Measure-Object).Count)
         duplicateRowGuids = $duplicateRowGuids
         duplicatePostingOrdersAcrossTypes = $duplicatePostingOrdersAcrossTypes
         inconsistentPostingOrders = @($transactions | Where-Object { -not $_.headerConsistent } | Select-Object -ExpandProperty journalPostOrder)
