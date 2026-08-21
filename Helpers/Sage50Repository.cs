@@ -295,7 +295,7 @@ namespace Sage50Connector.Helpers
         /// them by key. Only what a given entity needs is loaded — a journal entry
         /// never names a customer.
         /// </summary>
-        private ReferenceIndex BuildReferenceIndex(bool accounts, bool customers, bool vendors)
+        private ReferenceIndex BuildReferenceIndex(bool accounts, bool customers, bool vendors, bool inventoryItems = false)
         {
             var index = new ReferenceIndex();
             var factories = CompanyManager.Instance.CurrentCompany.Factories;
@@ -327,6 +327,19 @@ namespace Sage50Connector.Helpers
                 foreach (Vendor vendor in list)
                 {
                     index.Add(vendor.Key, vendor.ID);
+                }
+            }
+
+            if (inventoryItems)
+            {
+                var list = factories.InventoryItemFactory.List();
+                list.Load();
+                foreach (var item in list)
+                {
+                    object key = Property(item, "Key");
+                    object id = Property(item, "ID");
+                    EntityReference reference = key as EntityReference;
+                    index.Add(reference, id == null ? null : id.ToString());
                 }
             }
 
@@ -428,10 +441,146 @@ namespace Sage50Connector.Helpers
                 Quantity = quantity,
                 UnitPrice = unitPrice,
                 InventoryItemGuid = ReferenceIndex.GuidOf(inventoryItem),
+                InventoryItemID = index.ResolveInventoryItem(inventoryItem),
                 JobGuid = ReferenceIndex.GuidOf(job),
             };
             MapLineBase(body, line, index);
             return body;
+        }
+
+        private static object Property(object source, string name)
+        {
+            if (source == null) return null;
+            PropertyInfo property = source.GetType().GetProperty(name,
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.IgnoreCase);
+            return property == null ? null : property.GetValue(source, null);
+        }
+
+        private static string StringProperty(object source, string name)
+        {
+            object value = Property(source, name);
+            return value == null ? null : value.ToString();
+        }
+
+        private static bool BoolProperty(object source, string name)
+        {
+            object value = Property(source, name);
+            return value != null && Convert.ToBoolean(value);
+        }
+
+        private static decimal? DecimalProperty(object source, string name)
+        {
+            object value = Property(source, name);
+            if (value == null) return null;
+            return Convert.ToDecimal(value);
+        }
+
+        private static DateTime? DateProperty(object source, string name)
+        {
+            object value = Property(source, name);
+            if (value == null) return null;
+            DateTime date;
+            return DateTime.TryParse(value.ToString(), out date) ? date : (DateTime?)null;
+        }
+
+        private static string ItemReferenceID(object item, ReferenceIndex index, params string[] names)
+        {
+            foreach (string name in names)
+            {
+                EntityReference reference = Property(item, name) as EntityReference;
+                string id = index.ResolveInventoryItem(reference);
+                if (id != null) return id;
+            }
+            return null;
+        }
+
+        /// <summary>Inventory items. Reflection is intentional: Sage has added
+        /// subtype-specific item properties between SDK releases.</summary>
+        public List<InventoryItemBody> GetItems(string companyName)
+        {
+            var results = new List<InventoryItemBody>();
+            EnsureCompanyConnected(companyName);
+            if (CurrentCompanyDesconnected) return results;
+
+            var list = CompanyManager.Instance.CurrentCompany.Factories.InventoryItemFactory.List();
+            list.Load();
+            var index = BuildReferenceIndex(accounts: true, customers: false, vendors: true, inventoryItems: false);
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var item in list)
+            {
+                string id = StringProperty(item, "ID");
+                if (string.IsNullOrEmpty(id)) throw new InvalidOperationException("Sage inventory item has no ID.");
+                if (!seen.Add(id)) throw new InvalidOperationException("Duplicate Sage inventory item ID: " + id);
+                object key = Property(item, "Key");
+                DateTime? quantityDate = DateTime.Today;
+                decimal? quantity = null;
+                MethodInfo quantityMethod = item.GetType().GetMethod("QuantityOnHand", new[] { typeof(DateTime) });
+                if (quantityMethod != null)
+                {
+                    quantity = Convert.ToDecimal(quantityMethod.Invoke(item, new object[] { quantityDate.Value }));
+                }
+                results.Add(new InventoryItemBody
+                {
+                    ID = id,
+                    Guid = Property(key, "Guid") == null ? null : Property(key, "Guid").ToString(),
+                    Description = StringProperty(item, "Description"),
+                    PartNumber = StringProperty(item, "PartNumber"),
+                    ItemType = item.GetType().Name,
+                    IsInactive = BoolProperty(item, "IsInactive"),
+                    LastSavedAt = Timestamp(DateProperty(item, "LastSavedAt")),
+                    QuantityOnHand = quantity,
+                    SalesDescription = StringProperty(item, "SalesDescription"),
+                    PurchaseDescription = StringProperty(item, "PurchaseDescription"),
+                    SalesAccountID = ItemReferenceID(item, index, "SalesAccountReference", "SalesAccount"),
+                    InventoryAccountID = ItemReferenceID(item, index, "InventoryAccountReference", "InventoryAccount"),
+                    CogsAccountID = ItemReferenceID(item, index, "COGSAccountReference", "CogsAccountReference", "COGSAccount"),
+                });
+            }
+            return results.OrderBy(x => x.ID, StringComparer.OrdinalIgnoreCase).ToList();
+        }
+
+        /// <summary>Derives deposits from complete groups of posted receipts.
+        /// No partial modified-window filtering is applied.</summary>
+        public List<BankDepositBody> GetBankDeposits(string companyName)
+        {
+            var results = new List<BankDepositBody>();
+            EnsureCompanyConnected(companyName);
+            if (CurrentCompanyDesconnected) return results;
+            var index = BuildReferenceIndex(accounts: true, customers: true, vendors: false);
+            var list = CompanyManager.Instance.CurrentCompany.Factories.ReceiptFactory.List();
+            list.Load();
+            var groups = new Dictionary<string, List<Receipt>>(StringComparer.Ordinal);
+            foreach (Receipt receipt in list)
+            {
+                if (string.IsNullOrWhiteSpace(receipt.DepositTicketID) || !receipt.IsPosted) continue;
+                List<Receipt> group;
+                if (!groups.TryGetValue(receipt.DepositTicketID, out group))
+                {
+                    group = new List<Receipt>();
+                    groups.Add(receipt.DepositTicketID, group);
+                }
+                group.Add(receipt);
+            }
+            foreach (var pair in groups.OrderBy(x => x.Key, StringComparer.Ordinal))
+            {
+                var receipts = pair.Value.OrderBy(x => ReferenceIndex.GuidOf(x.Key), StringComparer.Ordinal).ToList();
+                string date = DateOnly(receipts[0].Date);
+                string account = index.Resolve(receipts[0].AccountReference);
+                if (receipts.Any(x => DateOnly(x.Date) != date || index.Resolve(x.AccountReference) != account))
+                    throw new InvalidOperationException("Inconsistent Sage deposit header for ticket " + pair.Key + ".");
+                var deposit = new BankDepositBody { ID = "deposit:" + pair.Key, DepositTicketID = pair.Key, Date = date, AccountID = account };
+                foreach (Receipt receipt in receipts)
+                {
+                    deposit.Amount += receipt.Amount;
+                    deposit.Receipts.Add(new BankDepositReceiptBody
+                    {
+                        ID = ReferenceIndex.GuidOf(receipt.Key), ReferenceNumber = receipt.ReceiptNumber,
+                        CustomerID = index.Resolve(receipt.CustomerReference), Amount = receipt.Amount, Date = DateOnly(receipt.Date)
+                    });
+                }
+                results.Add(deposit);
+            }
+            return results;
         }
 
         /// <summary>
@@ -515,7 +664,7 @@ namespace Sage50Connector.Helpers
 
             DateTime? after = ParseCutoff(updatedAt);
             DateTime? before = ParseCutoff(updatedBefore);
-            ReferenceIndex index = BuildReferenceIndex(accounts: true, customers: true, vendors: false);
+            ReferenceIndex index = BuildReferenceIndex(accounts: true, customers: true, vendors: false, inventoryItems: true);
 
             var invoices = CompanyManager.Instance.CurrentCompany.Factories.SalesInvoiceFactory.List();
             invoices.Load();
@@ -630,7 +779,7 @@ namespace Sage50Connector.Helpers
 
             DateTime? after = ParseCutoff(updatedAt);
             DateTime? before = ParseCutoff(updatedBefore);
-            ReferenceIndex index = BuildReferenceIndex(accounts: true, customers: false, vendors: true);
+            ReferenceIndex index = BuildReferenceIndex(accounts: true, customers: false, vendors: true, inventoryItems: true);
 
             var bills = CompanyManager.Instance.CurrentCompany.Factories.PurchaseInvoiceFactory.List();
             bills.Load();
@@ -729,7 +878,7 @@ namespace Sage50Connector.Helpers
 
             DateTime? after = ParseCutoff(updatedAt);
             DateTime? before = ParseCutoff(updatedBefore);
-            ReferenceIndex index = BuildReferenceIndex(accounts: true, customers: false, vendors: true);
+            ReferenceIndex index = BuildReferenceIndex(accounts: true, customers: false, vendors: true, inventoryItems: true);
 
             var payments = CompanyManager.Instance.CurrentCompany.Factories.PaymentFactory.List();
             payments.Load();
@@ -831,7 +980,7 @@ namespace Sage50Connector.Helpers
 
             DateTime? after = ParseCutoff(updatedAt);
             DateTime? before = ParseCutoff(updatedBefore);
-            ReferenceIndex index = BuildReferenceIndex(accounts: true, customers: true, vendors: false);
+            ReferenceIndex index = BuildReferenceIndex(accounts: true, customers: true, vendors: false, inventoryItems: true);
 
             var receipts = CompanyManager.Instance.CurrentCompany.Factories.ReceiptFactory.List();
             receipts.Load();

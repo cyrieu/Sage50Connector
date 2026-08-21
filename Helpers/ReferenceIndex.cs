@@ -76,5 +76,10 @@ namespace Sage50Connector.Helpers
 
             return reference.Guid.ToString();
         }
+
+        public string ResolveInventoryItem(EntityReference reference)
+        {
+            return Resolve(reference);
+        }
     }
 }

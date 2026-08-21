@@ -71,9 +71,12 @@ namespace Sage50Connector.Models.Rutter
 
         /// <summary>
         /// Inventory item as a raw GUID, for the same reason as JobGuid — Sage 50
-        /// has no ITEMS entity in Rutter yet, so there is nothing to link to.
+        /// has no Rutter item row to link to when the reference cannot be
+        /// resolved. InventoryItemID is populated when the item master was
+        /// indexed for this fetch.
         /// </summary>
         public string InventoryItemGuid { get; set; }
+        public string InventoryItemID { get; set; }
     }
 
     /// <summary>
