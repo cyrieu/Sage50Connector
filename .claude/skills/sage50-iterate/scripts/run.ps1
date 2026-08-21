@@ -46,7 +46,17 @@ Unregister-ScheduledTask -TaskName RutterSageLive -Confirm:$false -ErrorAction S
 $action = New-ScheduledTaskAction `
   -Execute 'C:\src\Sage50Connector\bin\Release\Sage50Connector.exe' `
   -WorkingDirectory 'C:\src\Sage50Connector\bin\Release'
-$windowsUser = if ($env:SAGE50_WINDOWS_USER) { $env:SAGE50_WINDOWS_USER } else { $env:USERNAME }
+$windowsUser = if ($env:SAGE50_WINDOWS_USER) {
+  $env:SAGE50_WINDOWS_USER
+} else {
+  $interactiveUser = (Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue).UserName
+  if ($interactiveUser) {
+    $interactiveUser
+  } else {
+    $activeSession = query user 2>$null | Where-Object { $_ -match '\sActive\s' } | Select-Object -First 1
+    if ($activeSession) { ($activeSession.Trim() -split '\s+')[0].TrimStart('>') } else { $env:USERNAME }
+  }
+}
 $principal = New-ScheduledTaskPrincipal -UserId $windowsUser -LogonType Interactive -RunLevel Highest
 Register-ScheduledTask -TaskName RutterSageLive -Action $action -Principal $principal | Out-Null
 Start-ScheduledTask -TaskName RutterSageLive

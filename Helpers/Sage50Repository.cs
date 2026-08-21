@@ -451,8 +451,22 @@ namespace Sage50Connector.Helpers
         private static object Property(object source, string name)
         {
             if (source == null) return null;
-            PropertyInfo property = source.GetType().GetProperty(name,
-                BindingFlags.Instance | BindingFlags.Public | BindingFlags.IgnoreCase);
+            // Some Sage runtime subtypes expose both ID and Id through their
+            // inheritance hierarchy. GetProperty with IgnoreCase throws an
+            // AmbiguousMatchException in that case, which broke every mapper
+            // that built the inventory-item reference index. Prefer an exact
+            // SDK spelling and only fall back to case-insensitive matching.
+            PropertyInfo[] properties = source.GetType().GetProperties(
+                BindingFlags.Instance | BindingFlags.Public);
+            PropertyInfo property = properties.FirstOrDefault(candidate =>
+                candidate.GetIndexParameters().Length == 0 &&
+                string.Equals(candidate.Name, name, StringComparison.Ordinal));
+            if (property == null)
+            {
+                property = properties.FirstOrDefault(candidate =>
+                    candidate.GetIndexParameters().Length == 0 &&
+                    string.Equals(candidate.Name, name, StringComparison.OrdinalIgnoreCase));
+            }
             return property == null ? null : property.GetValue(source, null);
         }
 
