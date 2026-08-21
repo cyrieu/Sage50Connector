@@ -19,23 +19,4 @@ namespace Sage50Connector.Models.Rutter
         public string CogsAccountID { get; set; }
         public List<object> PriceLevels { get; set; } = new List<object>();
     }
-
-    public class BankDepositReceiptBody
-    {
-        public string ID { get; set; }
-        public string ReferenceNumber { get; set; }
-        public string CustomerID { get; set; }
-        public decimal Amount { get; set; }
-        public string Date { get; set; }
-    }
-
-    public class BankDepositBody
-    {
-        public string ID { get; set; }
-        public string DepositTicketID { get; set; }
-        public string Date { get; set; }
-        public string AccountID { get; set; }
-        public decimal Amount { get; set; }
-        public List<BankDepositReceiptBody> Receipts { get; set; } = new List<BankDepositReceiptBody>();
-    }
 }

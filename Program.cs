@@ -1018,11 +1018,6 @@ namespace Sage50Connector
                     WriteToFile(DateTime.Now + $": Retrieved {items.Count} inventory items from Sage 50.");
                     data = items.Cast<object>().ToList();
                     break;
-                case "BANK_DEPOSITS":
-                    var deposits = Sage50Repository.Instance.GetBankDeposits(companyName);
-                    WriteToFile(DateTime.Now + $": Retrieved {deposits.Count} bank deposits from Sage 50.");
-                    data = deposits.Cast<object>().ToList();
-                    break;
                 case "INVOICE_PAYMENTS":
                     var invoicePayments = Sage50Repository.Instance.GetInvoicePayments(companyName, updatedAt, updatedBefore, includeMissing);
                     WriteToFile(DateTime.Now + $": Retrieved {invoicePayments.Count} receipts from Sage 50.");

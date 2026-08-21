@@ -553,50 +553,6 @@ namespace Sage50Connector.Helpers
             return results.OrderBy(x => x.ID, StringComparer.OrdinalIgnoreCase).ToList();
         }
 
-        /// <summary>Derives deposits from complete groups of posted receipts.
-        /// No partial modified-window filtering is applied.</summary>
-        public List<BankDepositBody> GetBankDeposits(string companyName)
-        {
-            var results = new List<BankDepositBody>();
-            EnsureCompanyConnected(companyName);
-            if (CurrentCompanyDesconnected) return results;
-            var index = BuildReferenceIndex(accounts: true, customers: true, vendors: false);
-            var list = CompanyManager.Instance.CurrentCompany.Factories.ReceiptFactory.List();
-            list.Load();
-            var groups = new Dictionary<string, List<Receipt>>(StringComparer.Ordinal);
-            foreach (Receipt receipt in list)
-            {
-                if (string.IsNullOrWhiteSpace(receipt.DepositTicketID) || !receipt.IsPosted) continue;
-                List<Receipt> group;
-                if (!groups.TryGetValue(receipt.DepositTicketID, out group))
-                {
-                    group = new List<Receipt>();
-                    groups.Add(receipt.DepositTicketID, group);
-                }
-                group.Add(receipt);
-            }
-            foreach (var pair in groups.OrderBy(x => x.Key, StringComparer.Ordinal))
-            {
-                var receipts = pair.Value.OrderBy(x => ReferenceIndex.GuidOf(x.Key), StringComparer.Ordinal).ToList();
-                string date = DateOnly(receipts[0].Date);
-                string account = index.Resolve(receipts[0].AccountReference);
-                if (receipts.Any(x => DateOnly(x.Date) != date || index.Resolve(x.AccountReference) != account))
-                    throw new InvalidOperationException("Inconsistent Sage deposit header for ticket " + pair.Key + ".");
-                var deposit = new BankDepositBody { ID = "deposit:" + pair.Key, DepositTicketID = pair.Key, Date = date, AccountID = account };
-                foreach (Receipt receipt in receipts)
-                {
-                    deposit.Amount += receipt.Amount;
-                    deposit.Receipts.Add(new BankDepositReceiptBody
-                    {
-                        ID = ReferenceIndex.GuidOf(receipt.Key), ReferenceNumber = receipt.ReceiptNumber,
-                        CustomerID = index.Resolve(receipt.CustomerReference), Amount = receipt.Amount, Date = DateOnly(receipt.Date)
-                    });
-                }
-                results.Add(deposit);
-            }
-            return results;
-        }
-
         /// <summary>
         /// General journal entries. The only entity here whose lines are the
         /// whole point — the header carries no party at all.
@@ -892,7 +848,7 @@ namespace Sage50Connector.Helpers
 
             DateTime? after = ParseCutoff(updatedAt);
             DateTime? before = ParseCutoff(updatedBefore);
-            ReferenceIndex index = BuildReferenceIndex(accounts: true, customers: false, vendors: true, inventoryItems: true);
+            ReferenceIndex index = BuildReferenceIndex(accounts: true, customers: false, vendors: true);
 
             var payments = CompanyManager.Instance.CurrentCompany.Factories.PaymentFactory.List();
             payments.Load();
@@ -994,7 +950,7 @@ namespace Sage50Connector.Helpers
 
             DateTime? after = ParseCutoff(updatedAt);
             DateTime? before = ParseCutoff(updatedBefore);
-            ReferenceIndex index = BuildReferenceIndex(accounts: true, customers: true, vendors: false, inventoryItems: true);
+            ReferenceIndex index = BuildReferenceIndex(accounts: true, customers: true, vendors: false);
 
             var receipts = CompanyManager.Instance.CurrentCompany.Factories.ReceiptFactory.List();
             receipts.Load();
