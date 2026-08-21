@@ -17,7 +17,7 @@ Get-Item 'C:\src\Sage50Connector\bin\Release\Sage50Connector.exe' -ErrorAction S
 
 Write-Output '=== config (token redacted) ==='
 $cfg = Join-Path $env:ProgramData 'Rutter\Sage50Connector\sage50Config.json'
-if (Test-Path $cfg) { (Get-Content $cfg -Raw) -replace 'iat_[A-Za-z0-9]+', 'iat_<redacted>' }
+if (Test-Path $cfg) { (Get-Content $cfg -Raw) -replace 'iat_[^"\s]+', 'iat_<redacted>' }
 else { Write-Output 'no config at ' + $cfg }
 
 Write-Output '=== service ==='
