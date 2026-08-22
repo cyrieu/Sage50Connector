@@ -82,8 +82,30 @@ namespace Sage50Connector.Helpers
                             }
                             else
                             {
-                                // End of quoted section.
-                                break;
+                                // Sage does not consistently double literal
+                                // quotes inside quoted descriptions (for
+                                // example an inch mark followed by a hyphen).
+                                // A quote is terminal only when the next
+                                // non-padding character is a delimiter, record
+                                // ending, or EOF. Otherwise preserve it and any
+                                // inspected whitespace as field data.
+                                var padding = new StringBuilder();
+                                while (next == ' ' || next == '\t')
+                                {
+                                    padding.Append((char)Read());
+                                    next = Peek();
+                                }
+
+                                if (next < 0 || next == ',' || next == '\r' || next == '\n')
+                                {
+                                    // End of quoted section. Padding belongs
+                                    // to Sage's column formatting, not the
+                                    // exported field value.
+                                    break;
+                                }
+
+                                field.Append('"');
+                                field.Append(padding);
                             }
                         }
                         else
