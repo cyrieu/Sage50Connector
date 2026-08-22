@@ -3,6 +3,7 @@ using Sage.Peachtree.API.Collections.Generic;
 using Sage50Connector.Models.Rutter;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 
@@ -1082,6 +1083,24 @@ namespace Sage50Connector.Helpers
         }
 
         #endregion
+
+        public List<GlTransactionBody> GetTransactions(
+            string companyName,
+            string startDate = null,
+            string endDate = null)
+        {
+            string credentialPath = Path.Combine(
+                ConnectorConfig.ConfigDirectory, "diagnostics", "sage-com-credential.xml");
+
+            string guid = Program.CompanyGuid;
+            var transactions = GeneralLedgerExporter.ExportTransactions(
+                companyName, guid, startDate, endDate, credentialPath);
+
+            global::Sage50Connector.Program.WriteToFile(
+                "TRANSACTIONS: COM exporter returned " + transactions.Count + " GL transaction(s).");
+
+            return transactions;
+        }
 
         public List<ChartofVendor> GetVendors(
             string companyName,

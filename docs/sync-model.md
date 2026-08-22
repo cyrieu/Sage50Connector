@@ -50,7 +50,7 @@ only on the final page — same meaning as cloud platforms.
 | 10 | COMPANY_INFO |
 | 20 | ACCOUNTS |
 | 30 | CUSTOMERS, VENDORS |
-| 40 | JOURNAL_ENTRIES, INVOICES, BILLS, EXPENSES (historical batch 0) |
+| 40 | JOURNAL_ENTRIES, INVOICES, BILLS, EXPENSES, TRANSACTIONS (historical batch 0) |
 | 50 | same temporal entities, historical batch 1 (deeper) |
 
 `selectNextJob` orders by `(priority ASC, updatedAt ASC)` and will not start an
@@ -71,7 +71,10 @@ to the server upsert (content hash / `platform_id` match). No client-side hash
 cache.
 
 Optional `start_date` / `end_date` (yyyy-MM-dd) filter transaction bodies by
-document `Date` after load (fiscal / outer range windowing).
+document `Date` after load (fiscal / outer range windowing). **TRANSACTIONS
+(GL) do not use `start_date`/`end_date` on recurring SIDE_REFRESH** — the COM
+exporter always dumps the full ledger and the server upsert dedupes unchanged
+rows. Historical initial batches may partition by transaction date.
 
 **Delete monitoring is not supported.** The Sage Peachtree SDK has no deleted-
 entity query (verified against 2026.1 SDK docs on the lab VM). Hard deletes would

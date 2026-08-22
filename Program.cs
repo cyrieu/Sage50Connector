@@ -53,10 +53,11 @@ namespace Sage50Connector
         [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
         public string platform_id { get; set; }
 
-        /// <summary>Optional transaction date window (yyyy-MM-dd), inclusive.</summary>
+        /// <summary>Optional transaction date window lower bound (yyyy-MM-dd or ISO 8601), half-open inclusive.</summary>
         [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
         public string start_date { get; set; }
 
+        /// <summary>Optional transaction date window upper bound (yyyy-MM-dd or ISO 8601), half-open exclusive.</summary>
         [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
         public string end_date { get; set; }
 
@@ -1028,11 +1029,27 @@ namespace Sage50Connector
                     WriteToFile(DateTime.Now + $": Retrieved {employees.Count} employees from Sage 50.");
                     data = employees.Cast<object>().ToList();
                     break;
+                case "TRANSACTIONS":
+                    var transactions = Sage50Repository.Instance.GetTransactions(companyName, startDate, endDate);
+                    WriteToFile(DateTime.Now + $": Retrieved {transactions.Count} GL transactions from Sage 50 COM exporter.");
+                    data = transactions.Cast<object>().ToList();
+                    break;
                 default:
                     throw new ArgumentException("Unknown platform entity: " + entity);
             }
 
-            data = FilterByDateWindow(data, startDate, endDate);
+            // TRANSACTIONS are already filtered by the COM exporter with a
+            // validated half-open date window (start <= date < end). The
+            // generic FilterByDateWindow uses string comparison and
+            // inclusive-inclusive semantics, which would both double-filter
+            // and disagree with the exporter on the end boundary. The
+            // backend also sends ISO timestamps as start_date / end_date,
+            // so string comparison against yyyy-MM-dd GL dates would be
+            // incorrect.
+            if (entity != "TRANSACTIONS")
+            {
+                data = FilterByDateWindow(data, startDate, endDate);
+            }
             WriteToFile(DateTime.Now + $": Returning {data.Count} {entity}(s) after filtering.");
             return data;
         }
