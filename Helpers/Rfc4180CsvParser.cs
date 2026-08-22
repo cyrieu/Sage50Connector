@@ -91,15 +91,25 @@ namespace Sage50Connector.Helpers
                             field.Append((char)c);
                         }
                     }
-                    // After a closing quote, the next character must be a comma,
-                    // newline, or end of file. Any other character is a
-                    // structural error that would corrupt the next field.
+                    // Sage's General Ledger exporter pads some quoted values
+                    // with spaces before the delimiter. This is not strict RFC
+                    // 4180, but the whitespace is formatting rather than field
+                    // data, so consume spaces/tabs after the closing quote.
                     int after = Peek();
+                    while (after == ' ' || after == '\t')
+                    {
+                        Read();
+                        after = Peek();
+                    }
+
+                    // The first non-padding character must still be a comma,
+                    // newline, or end of file. Fail closed for any other
+                    // character so malformed rows cannot shift columns.
                     if (after >= 0 && after != ',' && after != '\r' && after != '\n')
                     {
                         throw new InvalidDataException(
                             $"CSV parse error: unexpected character '{(char)after}' " +
-                            "after closing quote. Expected a comma, newline, or end " +
+                            "after closing quote and optional padding. Expected a comma, newline, or end " +
                             "of file. The General Ledger export may be corrupted.");
                     }
                 }
