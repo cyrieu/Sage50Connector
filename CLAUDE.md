@@ -530,6 +530,70 @@ supplied", not "clear this", so a partial update cannot blank a vendor's email.
 body — the connector is reporting on work Rutter asked for, and trusting it to
 name a different row would let a buggy client delete arbitrary data.
 
+### Transactions: General Ledger (COM exporter)
+
+`TRANSACTIONS` uses the Sage COM General Ledger Rows exporter (object 16),
+not the .NET SDK. The COM path is late-bound (`Type.GetTypeFromProgID` /
+`Activator.CreateInstance`) — no compile-time interop reference is added.
+Every COM object is released with `Marshal.FinalReleaseComObject` in a
+finally block.
+
+The COM exporter always dumps the whole ledger to CSV. The connector does
+**not** call `SetDateFilterValue` at all — the spike proved
+GeneralLedgerRows rejects it with `0x800436FD`, and a COM failure invoked
+through `Type.InvokeMember` may be wrapped in `TargetInvocationException`
+rather than surfacing as a raw `COMException`. Instead the connector parses
+the full CSV, drops `IncludeInGL=false` rows, applies a half-open date window
+(`start_date <= posting date < end_date`) locally, and groups rows by
+`JournalPostOrder` into one transaction with id `gl:{JournalPostOrder}`.
+Lines are ordered by `JournalRowIndex`.
+
+CSV parsing uses a whole-stream RFC 4180 parser (`Rfc4180CsvParser`) that
+handles quoted fields containing embedded newlines and doubled quotes —
+`File.ReadAllLines` + per-line splitting would corrupt multi-line quoted
+descriptions.
+
+Operating constraints (from the 2026-08-20 spike against Bellwether):
+
+- Sage 50 must be open in the interactive user session.
+- COM uses separate Sage-issued partner credentials (DPAPI-encrypted at
+  `%ProgramData%\Rutter\Sage50Connector\diagnostics\sage-com-credential.xml`).
+  The credential file is created by `diagnostics\Set-GeneralLedgerComCredential.ps1`,
+  which uses PowerShell `Export-Clixml` — the SecureString password is stored
+  as a DPAPI-encrypted hex string (not Base64) in the CLIXML `<SS>` element.
+  If missing, the connector fails the TRANSACTIONS job with a precise error;
+  other .NET SDK entities are unaffected.
+  **The credential script is lab/dev-only.** It is not included in the MSI, not
+  part of customer onboarding, and requires Sage-issued COM partner credentials
+  that customers do not possess. The TRANSACTIONS implementation is therefore
+  **not customer-ready** and is not zero-touch: a customer cannot set up the
+  COM credential themselves, and the MSI does not ship the script.
+- One posting order can include multiple journal codes (e.g., sales + COGS).
+  These stay in one balanced transaction. `headerConsistent` is true only when
+  all lines share one normalized date and one normalized reference; all-blank
+  references is consistent (zero references on any line); mixed blank/nonblank
+  references or dates is NOT consistent. Multiple journal type codes are
+  expected and do NOT make a group inconsistent.
+- Fail-closed on malformed GL data: the connector throws an actionable error
+  (with row number) if JournalPostOrder, JournalRowIndex, GL GUID, GLAccountId,
+  Date, TransactionAmount, or IncludeInGL is missing, blank, or unparseable. Unknown
+  journal codes preserve `journalTypeCode` but leave numeric `journalType`
+  null rather than defaulting to 0 (General).
+- GL rows have no `LastSavedAt`. The backend passes temporal bounds as
+  `start_date`/`end_date` (transaction-date window) for historical initial
+  batches, not `updated_at`/`updated_before` (LastSavedAt window). Recurring
+  SIDE_REFRESH exports the full ledger (no `start_date`/`end_date`) because
+  a transaction edited today but dated before the last sync would be missed
+  by a transaction-date lower bound. The server upsert dedupes unchanged rows.
+- No completed-snapshot reconciliation: stale GL rows from deleted/voided
+  transactions are not removed by sync.
+
+Not yet compiled or run on the Windows VM. Platform types are hand-authored
+and will need regeneration after the first real sync. The connector has no
+C# test project — parsing, grouping, and date filtering methods in
+`GeneralLedgerExporter` are marked `internal` so a future test harness can
+exercise them, but no test project exists in the solution today.
+
 ### Paging
 
 `parameters.limit` and `parameters.cursor` are set by Rutter. The connector
@@ -690,9 +754,28 @@ survives a short restart, but a long outage still exits the process by design.
   rutter-backend `platforms/sage_50/CLAUDE.md` under "Adding an entity".
 - **Entity coverage.** Read: accounts, customers, vendors, company info (all
   verified end to end), plus the four transaction entities above (unverified).
-  Vendors also support ID_FETCH, CREATE, UPDATE and DELETE. No payments received,
-  credit memos, inventory items, employees or jobs — QuickBooks Desktop covers
-  roughly 40 entities for comparison.
+  TRANSACTIONS (General Ledger) uses the COM exporter — see "Accounting
+  Transactions (General Ledger)" in the backend CLAUDE.md. Not yet compiled or
+  run on the VM. Vendors also support ID_FETCH, CREATE, UPDATE and DELETE. No
+  payments received, credit memos, inventory items, employees or jobs —
+  QuickBooks Desktop covers roughly 40 entities for comparison.
+- **TRANSACTIONS require Sage COM partner credentials.** The COM General Ledger
+  Rows exporter uses separate Sage-issued partner credentials, stored
+  DPAPI-encrypted at `%ProgramData%\Rutter\Sage50Connector\diagnostics\
+  sage-com-credential.xml`. Run `Set-GeneralLedgerComCredential.ps1` as the
+  interactive Sage user to create them. If missing, the connector fails the
+  TRANSACTIONS job with a precise error; other .NET SDK entities are unaffected.
+  **The credential script is lab/dev-only.** It is not included in the MSI, not
+  part of customer onboarding, and requires Sage-issued COM partner credentials
+  that customers do not possess. The TRANSACTIONS implementation is therefore
+  **not customer-ready** and is not zero-touch: a customer cannot set up the
+  COM credential themselves, and the MSI does not ship the script.
+- **TRANSACTIONS require Sage to be open.** The COM exporter attaches to the
+  company already opened by the interactive Sage user. This does not change the
+  headless behavior of the existing .NET SDK endpoints.
+- **No completed-snapshot reconciliation for TRANSACTIONS.** Stale GL rows from
+  deleted/voided transactions are not removed by sync. See the backend CLAUDE.md
+  for details.
 - **One connector configuration serves one company** — its stable Sage company
   GUID and exact SDK name are selected by the customer in the connector.
 - Inbound access token is stored plaintext in `%ProgramData%` and logged
