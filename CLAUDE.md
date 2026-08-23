@@ -552,10 +552,20 @@ the full CSV, drops `IncludeInGL=false` rows, applies a half-open date window
 `JournalPostOrder` into one transaction with id `gl:{JournalPostOrder}`.
 Lines are ordered by `JournalRowIndex`.
 
-CSV parsing uses a whole-stream RFC 4180 parser (`Rfc4180CsvParser`) that
-handles quoted fields containing embedded newlines and doubled quotes —
-`File.ReadAllLines` + per-line splitting would corrupt multi-line quoted
-descriptions.
+CSV parsing uses a whole-stream Sage-aware RFC 4180 parser
+(`Rfc4180CsvParser`) that handles quoted fields containing embedded newlines,
+doubled quotes, padding after closing quotes, and Sage's malformed terminal
+inch-mark form (`"Ficus Tree 22" - 26""`). `File.ReadAllLines` + per-line
+splitting would corrupt multi-line quoted descriptions.
+
+Verified 2026-08-23 against the complete Bellwether raw export: an earlier
+literal-quote heuristic collapsed 1,933 physical posting rows into 1,768 parsed
+lines and produced four apparently unbalanced posting orders. They were two
+parser corruption chains, not Sage accounting imbalances: malformed inch-mark
+rows began at posting orders 673 and 689, and parsing recovered only at ordinary
+quoted descriptions in 682 and 726. Treating Sage's final quote pair as one
+literal inch mark plus the field terminator parses all 1,933 rows into 230
+transactions, with 14 columns on every row and zero unbalanced posting orders.
 
 Operating constraints (from the 2026-08-20 spike against Bellwether):
 
