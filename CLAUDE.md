@@ -538,6 +538,10 @@ not the .NET SDK. The COM path is late-bound (`Type.GetTypeFromProgID` /
 Every COM object is released with `Marshal.FinalReleaseComObject` in a
 finally block.
 
+The repeatable credential, approval, verification, and recovery procedure is
+in [docs/com-general-ledger.md](docs/com-general-ledger.md). Read it before
+recreating the lab credential or responding to a COM authorization failure.
+
 The COM exporter always dumps the whole ledger to CSV. The connector does
 **not** call `SetDateFilterValue` at all — the spike proved
 GeneralLedgerRows rejects it with `0x800436FD`, and a COM failure invoked

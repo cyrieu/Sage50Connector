@@ -77,8 +77,37 @@ namespace Sage50Connector.Helpers
                             int next = Peek();
                             if (next == '"')
                             {
+                                Read(); // consume the second quote
+
+                                // Sage has a non-RFC edge case when a quoted
+                                // description itself ends with an inch mark:
+                                //
+                                //   "Ficus Tree 22" - 26"",,825.00
+                                //
+                                // The final two quotes mean one literal inch
+                                // mark AND the end of the quoted field. Strict
+                                // RFC 4180 would require three quotes there.
+                                // Treat a doubled quote followed by optional
+                                // padding and a record delimiter as Sage's
+                                // combined literal-plus-terminator. A standard
+                                // RFC escaped quote followed by more field data
+                                // remains a literal quote.
+                                int afterPair = Peek();
+                                var pairPadding = new StringBuilder();
+                                while (afterPair == ' ' || afterPair == '\t')
+                                {
+                                    pairPadding.Append((char)Read());
+                                    afterPair = Peek();
+                                }
+
                                 field.Append('"');
-                                Read(); // consume the doubled quote
+                                if (afterPair < 0 || afterPair == ',' ||
+                                    afterPair == '\r' || afterPair == '\n')
+                                {
+                                    break;
+                                }
+
+                                field.Append(pairPadding);
                             }
                             else
                             {
