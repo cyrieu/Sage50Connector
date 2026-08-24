@@ -219,10 +219,16 @@ namespace Sage50Connector.Ui
                 authBalloonShown = true;
                 try
                 {
+                    bool needsTransactions = s.SageAuthorization == SageAuthorizationState.Granted
+                        && s.ComAuthorization == SageAuthorizationState.Required;
                     trayIcon.ShowBalloonTip(
                         10000,
-                        "Sage 50 approval needed for this version",
-                        "Open Sage 50, close and reopen your company, choose “Always Allow Access”, then click Check access.",
+                        needsTransactions
+                            ? "Sage 50 transaction approval needed"
+                            : "Sage 50 approval needed for this version",
+                        needsTransactions
+                            ? "Keep the company open, check “Remember this setting” in the Peachtree Software prompt, then click Yes."
+                            : "Open Sage 50, close and reopen your company, choose “Always Allow Access”, then click Check access.",
                         ToolTipIcon.Warning);
                 }
                 catch { }

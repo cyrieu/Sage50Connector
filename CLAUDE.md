@@ -542,6 +542,55 @@ The repeatable credential, approval, verification, and recovery procedure is
 in [docs/com-general-ledger.md](docs/com-general-ledger.md). Read it before
 recreating the lab credential or responding to a COM authorization failure.
 
+#### Retest the remembered COM approval quickly
+
+Verified 2026-08-24 against Bellwether. Sage stores the COM partner prompt as a
+remembered **one-time message**. To make the prompt appear again without
+revoking the connector's separate .NET SDK grant:
+
+1. Keep the configured company open in Sage as an administrator.
+2. Open **Options → Global → General**.
+3. Click **Reset** next to **Reset all one-time messages**, then click **OK**.
+4. Confirm **Options → Global → Sage Partners** is still set to **Medium — Warn
+   before Sage Partner applications run**. Low bypasses the prompt; High blocks
+   every partner application.
+5. Exit the connector cleanly from its notification-area icon (**right-click →
+   Exit**). The reset does not affect an already-running partner application.
+6. Delete only the connector's non-secret COM approval marker so startup performs
+   the live probe again:
+
+   ```powershell
+   Remove-Item "$env:ProgramData\Rutter\Sage50Connector\sage-com-authorization.json" -ErrorAction SilentlyContinue
+   ```
+
+7. Restart the development connector:
+
+   ```powershell
+   Start-Process 'C:\src\Sage50Connector\bin\Release\Sage50Connector.exe'
+   ```
+
+8. When Sage asks **Do you want to allow Peachtree Software to run with your
+   Sage 50 Software?**, choose the state being tested:
+   - persistent allowed: select **Remember this setting**, then **Yes**;
+   - persistent denied: select **Remember this setting**, then **No**;
+   - one-run behavior: leave **Remember this setting** clear and choose Yes or
+     No.
+
+Repeat the reset/restart loop to switch between remembered allowed and denied
+states. The `Peachtree Software` name comes from the Sage-issued COM partner
+credential; it is distinct from the `.NET` prompt for `Rutter Sage 50
+Connector`.
+
+Do **not** rename or delete the company's `APIACCSS.DAT` for this test. That is
+the broad SDK recovery procedure and removes every saved .NET application grant
+for the company. **Reset all one-time messages** resets other remembered Sage
+one-time prompts too, but preserves `APIACCSS.DAT` and the connector's existing
+.NET approval. If the COM prompt still does not appear, exit the connector,
+close and reopen the company as an administrator, and start the connector
+again. Current builds check COM immediately after the normal .NET approval, so
+startup itself exercises this path before polling Rutter. Older builds require
+a `TRANSACTIONS` job to reach the lazy check.
+
 The COM exporter always dumps the whole ledger to CSV. The connector does
 **not** call `SetDateFilterValue` at all — the spike proved
 GeneralLedgerRows rejects it with `0x800436FD`, and a COM failure invoked
@@ -578,11 +627,19 @@ Operating constraints (from the 2026-08-20 spike against Bellwether):
   current-user DPAPI. An authenticated `/sage-50/com-credential` recovery route
   provisions upgrades or deleted local state. The old diagnostic CLIXML remains
   a migration-only fallback and is converted automatically when found.
-- The normal .NET SDK grant is required before polling Rutter. COM credential
-  provisioning and the COM company grant are checked lazily when Rutter
-  requests `TRANSACTIONS`, so a missing transaction permission does not block
-  accounts, customers, vendors, or the other SDK entities. The transaction job
-  receives an actionable error and can be retried after approval.
+- A successful COM probe writes the non-secret
+  `%ProgramData%\Rutter\Sage50Connector\sage-com-authorization.json` marker for
+  the configured company. This prevents an ordinary connector restart from
+  requiring Sage to be open. Startup ignores the marker and performs a live COM
+  probe after every new executable approval; every `TRANSACTIONS` export also
+  probes defensively. Delete only this marker when deliberately retesting the
+  remembered COM prompt.
+- The normal .NET SDK grant is required before polling Rutter. Immediately after
+  it succeeds, startup provisions the COM credential and probes the COM company
+  grant while Sage is still open from the first approval. Both grants therefore
+  form one onboarding gate and no `TRANSACTIONS` job is consumed merely to
+  discover missing permission. The transaction handler retains the same probe
+  as a defensive fallback if Sage's remembered COM setting is reset later.
 - One posting order can include multiple journal codes (e.g., sales + COGS).
   These stay in one balanced transaction. `headerConsistent` is true only when
   all lines share one normalized date and one normalized reference; all-blank

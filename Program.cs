@@ -540,7 +540,17 @@ namespace Sage50Connector
 
         static async Task MainAsync(string AccessKey, string CompanyName, string ConnectionId)
         {
-            await WaitForSageAuthorizationAsync(CompanyName);
+            bool sdkApprovalWasRequired = await WaitForSageAuthorizationAsync(CompanyName);
+            if (sdkApprovalWasRequired
+                || !ComCredentialStore.IsAuthorizationConfirmed(CompanyGuid, CompanyName))
+            {
+                await WaitForComAuthorizationAsync(CompanyName);
+            }
+            else
+            {
+                Helpers.SyncStatus.Instance.SetComAuthorizationGranted();
+                WriteToFile(DateTime.Now + ": Using the remembered Sage COM transaction approval.");
+            }
 
             bool firstIteration = true;
             int consecutivePollFailures = 0;
@@ -657,6 +667,29 @@ namespace Sage50Connector
         }
 
         /// <summary>
+        /// Complete Sage's second, COM-specific company-data approval before
+        /// accepting any work from Rutter. At this point the customer has just
+        /// reopened the configured company to grant the normal SDK request, so
+        /// Sage is in exactly the state required to show the COM prompt too.
+        ///
+        /// Keeping this ahead of the first poll makes authorization one coherent
+        /// onboarding step and prevents a TRANSACTIONS job from being consumed
+        /// merely to discover that its permission is still pending.
+        /// </summary>
+        private static async Task WaitForComAuthorizationAsync(string companyName)
+        {
+            while (true)
+            {
+                if (await EnsureComAuthorizationForTransactionsAsync(companyName))
+                {
+                    return;
+                }
+
+                await DelayInterruptible(AuthorizationRetryDelay);
+            }
+        }
+
+        /// <summary>
         /// Prove that Sage granted this exact executable access before accepting
         /// work from Rutter. APIACCSS.DAT contains requested and granted hashes,
         /// so reading that file cannot distinguish approval; RequestAccess can.
@@ -665,8 +698,9 @@ namespace Sage50Connector
         /// queued job. The Sage session is released after every probe so a denied
         /// build cannot cache stale authorization or occupy a licence seat.
         /// </summary>
-        private static async Task WaitForSageAuthorizationAsync(string companyName)
+        private static async Task<bool> WaitForSageAuthorizationAsync(string companyName)
         {
+            bool approvalWasRequired = false;
             while (true)
             {
                 Helpers.SyncStatus.Instance.SetCheckingAuthorization();
@@ -701,9 +735,10 @@ namespace Sage50Connector
                     if (result == AuthorizationResult.Granted)
                     {
                         Helpers.SyncStatus.Instance.SetAuthorizationGranted();
-                        return;
+                        return approvalWasRequired;
                     }
 
+                    approvalWasRequired = true;
                     Helpers.SyncStatus.Instance.SetNeedsAuthorization();
                 }
                 catch (Exception ex)
@@ -723,8 +758,10 @@ namespace Sage50Connector
 
         /// <summary>
         /// The COM General Ledger exporter has its own Sage access handshake.
-        /// It is checked only when Rutter asks for TRANSACTIONS so a missing COM
-        /// grant does not block unrelated SDK entities.
+        /// Startup checks this immediately after the normal SDK grant. The
+        /// TRANSACTIONS handler also calls it as a defensive fallback in case
+        /// Sage's remembered permission is later reset while the connector is
+        /// running.
         /// </summary>
         private static async Task<bool> EnsureComAuthorizationForTransactionsAsync(string companyName)
         {
@@ -733,7 +770,19 @@ namespace Sage50Connector
             try
             {
                 await ComCredentialProvisioner.EnsureProvisionedAsync(Config);
+            }
+            catch (Exception ex)
+            {
+                WriteToFile(DateTime.Now + ": Sage COM credential provisioning failed: " + ex.Message);
+                Helpers.SyncStatus.Instance.SetComAuthorizationCheckFailed(
+                    "Rutter could not prepare Sage transaction access: " + ex.Message);
+                return false;
+            }
+
+            try
+            {
                 GeneralLedgerExporter.ProbeAccess(companyName, CompanyGuid);
+                ComCredentialStore.MarkAuthorizationConfirmed(CompanyGuid, companyName);
                 Helpers.SyncStatus.Instance.SetComAuthorizationGranted();
                 WriteToFile(DateTime.Now + ": Sage COM transaction access granted.");
                 return true;

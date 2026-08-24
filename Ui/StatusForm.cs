@@ -24,6 +24,8 @@ namespace Sage50Connector.Ui
         private readonly ProgressBar progress = new ProgressBar();
         private readonly ListView entityList = new ListView();
         private readonly Panel authPanel = new Panel();
+        private readonly Label authHeading = new Label();
+        private readonly Label authSteps = new Label();
         private readonly Button syncNowButton = new Button();
         private readonly Button updateButton = new Button();
 
@@ -134,20 +136,18 @@ namespace Sage50Connector.Ui
             authPanel.BorderStyle = BorderStyle.FixedSingle;
             authPanel.Visible = false;
 
-            Label heading = new Label();
-            heading.SetBounds(10, 8, 420, 18);
-            heading.Font = new Font(Font, FontStyle.Bold);
-            heading.Text = "Sage 50 needs to approve this version";
+            authHeading.SetBounds(10, 8, 420, 18);
+            authHeading.Font = new Font(Font, FontStyle.Bold);
+            authHeading.Text = "Sage 50 needs to approve this version";
 
-            Label steps = new Label();
-            steps.SetBounds(10, 28, 420, 62);
-            steps.Text =
+            authSteps.SetBounds(10, 28, 420, 62);
+            authSteps.Text =
                 "In Sage 50, sign in as an administrator, then:\r\n" +
                 "   1.  File → Close Company\r\n" +
                 "   2.  Open the company again — the request appears as it opens\r\n" +
                 "   3.  Choose “Always Allow Access”";
 
-            authPanel.Controls.AddRange(new Control[] { heading, steps });
+            authPanel.Controls.AddRange(new Control[] { authHeading, authSteps });
         }
 
         private void OnStatusChanged(object sender, EventArgs e)
@@ -217,8 +217,30 @@ namespace Sage50Connector.Ui
                     break;
             }
 
+            bool showingComApproval = s.SageAuthorization == SageAuthorizationState.Granted
+                && (s.ComAuthorization == SageAuthorizationState.Required
+                    || s.ComAuthorization == SageAuthorizationState.Checking);
+            if (showingComApproval)
+            {
+                authHeading.Text = "Approve Sage 50 transaction access";
+                authSteps.Text =
+                    "Keep the selected company open in Sage 50, then:\r\n" +
+                    "   1.  Find the “Peachtree Software” access prompt\r\n" +
+                    "   2.  Check “Remember this setting”\r\n" +
+                    "   3.  Click “Yes”";
+            }
+            else
+            {
+                authHeading.Text = "Sage 50 needs to approve this version";
+                authSteps.Text =
+                    "In Sage 50, sign in as an administrator, then:\r\n" +
+                    "   1.  File → Close Company\r\n" +
+                    "   2.  Open the company again — the request appears as it opens\r\n" +
+                    "   3.  Choose “Always Allow Access”";
+            }
+
             bool needsAuthorization = s.SageAuthorization == SageAuthorizationState.Required
-                || s.ComAuthorization == SageAuthorizationState.Required;
+                || showingComApproval;
             authPanel.Visible = needsAuthorization;
             syncNowButton.Text = needsAuthorization ? "Check access" : "Sync now";
 

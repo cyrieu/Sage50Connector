@@ -24,6 +24,8 @@ namespace Sage50Connector.Helpers
     {
         internal static readonly string CredentialFilePath = Path.Combine(
             ConnectorConfig.ConfigDirectory, "sage-com-credential.bin");
+        internal static readonly string AuthorizationMarkerFilePath = Path.Combine(
+            ConnectorConfig.ConfigDirectory, "sage-com-authorization.json");
         internal static readonly string LegacyCredentialFilePath = Path.Combine(
             ConnectorConfig.ConfigDirectory, "diagnostics", "sage-com-credential.xml");
 
@@ -73,6 +75,51 @@ namespace Sage50Connector.Helpers
         {
             try { Load(); return true; }
             catch { return false; }
+        }
+
+        /// <summary>
+        /// Avoid requiring Sage to be open on every ordinary connector restart.
+        /// The live COM probe is still repeated after an SDK re-approval and
+        /// immediately before every TRANSACTIONS export.
+        /// </summary>
+        public static bool IsAuthorizationConfirmed(string companyGuid, string companyName)
+        {
+            try
+            {
+                if (!File.Exists(AuthorizationMarkerFilePath)) return false;
+                JObject marker = JObject.Parse(File.ReadAllText(AuthorizationMarkerFilePath));
+                string savedGuid = marker.Value<string>("companyGuid");
+                if (!string.IsNullOrWhiteSpace(companyGuid))
+                    return string.Equals(savedGuid, companyGuid, StringComparison.OrdinalIgnoreCase);
+                return string.Equals(
+                    marker.Value<string>("companyName"), companyName, StringComparison.Ordinal);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        public static void MarkAuthorizationConfirmed(string companyGuid, string companyName)
+        {
+            Directory.CreateDirectory(ConnectorConfig.ConfigDirectory);
+            string temporaryPath = AuthorizationMarkerFilePath + ".tmp";
+            try
+            {
+                File.WriteAllText(temporaryPath, JsonConvert.SerializeObject(new
+                {
+                    companyGuid,
+                    companyName,
+                    confirmedAt = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture),
+                }));
+                if (File.Exists(AuthorizationMarkerFilePath))
+                    File.Delete(AuthorizationMarkerFilePath);
+                File.Move(temporaryPath, AuthorizationMarkerFilePath);
+            }
+            finally
+            {
+                if (File.Exists(temporaryPath)) try { File.Delete(temporaryPath); } catch { }
+            }
         }
 
         private static SageComCredential LoadCurrent()
