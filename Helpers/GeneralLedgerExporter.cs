@@ -1,6 +1,7 @@
 using Sage50Connector.Models.Rutter;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -14,6 +15,14 @@ namespace Sage50Connector.Helpers
 {
     internal static class GeneralLedgerExporter
     {
+        private const int ShowWindowRestore = 9;
+
+        [DllImport("user32.dll")]
+        private static extern bool ShowWindowAsync(IntPtr windowHandle, int command);
+
+        [DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr windowHandle);
+
         private const int GeneralLedgerRowsObject = 16;
         private const short CsvFileType = 0;
         private const short OverwriteWithoutAsking = 1;
@@ -50,6 +59,13 @@ namespace Sage50Connector.Helpers
             object application = null;
             try
             {
+                // The access prompt is owned by Sage, not by the connector. If
+                // Sage is minimized or behind the connector, Windows can create
+                // the modal there without drawing the customer's attention to
+                // it. During onboarding, restore Sage immediately before the COM
+                // call so the prompt appears in the foreground.
+                BringSageToForeground();
+
                 try
                 {
                     Type selectorType = Type.GetTypeFromProgID("PeachtreeAccounting.LoginSelector");
@@ -107,6 +123,23 @@ namespace Sage50Connector.Helpers
                 SafeReleaseComObject(ref loginSelector);
                 GC.Collect();
                 GC.WaitForPendingFinalizers();
+            }
+        }
+
+        private static void BringSageToForeground()
+        {
+            try
+            {
+                Process sage = Process.GetProcessesByName("Peachw")
+                    .FirstOrDefault(p => p.MainWindowHandle != IntPtr.Zero);
+                if (sage == null) return;
+                ShowWindowAsync(sage.MainWindowHandle, ShowWindowRestore);
+                SetForegroundWindow(sage.MainWindowHandle);
+            }
+            catch
+            {
+                // Foreground activation is a usability aid only. The COM probe
+                // still returns the authoritative authorization result.
             }
         }
 
