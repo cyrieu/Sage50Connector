@@ -53,10 +53,11 @@ namespace Sage50Connector
         [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
         public string platform_id { get; set; }
 
-        /// <summary>Optional transaction date window (yyyy-MM-dd), inclusive.</summary>
+        /// <summary>Optional transaction date window lower bound (yyyy-MM-dd or ISO 8601), half-open inclusive.</summary>
         [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
         public string start_date { get; set; }
 
+        /// <summary>Optional transaction date window upper bound (yyyy-MM-dd or ISO 8601), half-open exclusive.</summary>
         [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
         public string end_date { get; set; }
 
@@ -453,12 +454,14 @@ namespace Sage50Connector
 
             try
             {
+                using (var credentialEnvelope = new ComCredentialProvisioner())
                 using (HttpClient client = new HttpClient())
                 {
                     var requestBody = new
                     {
                         company_id = companyName,
-                        org_id = orgId
+                        org_id = orgId,
+                        com_credential_public_key = credentialEnvelope.PublicKey
                     };
 
                     var request = new HttpRequestMessage(HttpMethod.Post, saveIdUrl);
@@ -492,6 +495,8 @@ namespace Sage50Connector
                         sage50Config.Value<string>("ConnectionId"),
                         apiBaseUrl
                     );
+                    credentialEnvelope.DecryptAndSave(
+                        body.Value<string>("com_credential_encrypted"));
 
                     WriteToFile(
                         "Setup complete. Wrote "
@@ -557,6 +562,19 @@ namespace Sage50Connector
                     switch (job.type)
                     {
                         case "LIST_FETCH":
+                            if (job.platform_entity == "TRANSACTIONS"
+                                && !await EnsureComAuthorizationForTransactionsAsync(CompanyName))
+                            {
+                                await ReportUnsupportedJob(
+                                    job,
+                                    AccessKey,
+                                    "Sage transaction access is not approved for this company. "
+                                        + "Open the configured company in Sage 50, approve Rutter transaction access, "
+                                        + "then retry the transaction sync.");
+                                Helpers.SyncStatus.Instance.SetNeedsComAuthorization(
+                                    "Open the configured company in Sage 50 and approve Rutter transaction access, then retry the transaction sync.");
+                                break;
+                            }
                             await HandleListFetchJob(job, AccessKey, CompanyName);
                             break;
                         case "CREATE":
@@ -700,6 +718,32 @@ namespace Sage50Connector
                 }
 
                 await DelayInterruptible(AuthorizationRetryDelay);
+            }
+        }
+
+        /// <summary>
+        /// The COM General Ledger exporter has its own Sage access handshake.
+        /// It is checked only when Rutter asks for TRANSACTIONS so a missing COM
+        /// grant does not block unrelated SDK entities.
+        /// </summary>
+        private static async Task<bool> EnsureComAuthorizationForTransactionsAsync(string companyName)
+        {
+            Helpers.SyncStatus.Instance.SetCheckingComAuthorization(
+                "Checking Sage transaction access…");
+            try
+            {
+                await ComCredentialProvisioner.EnsureProvisionedAsync(Config);
+                GeneralLedgerExporter.ProbeAccess(companyName, CompanyGuid);
+                Helpers.SyncStatus.Instance.SetComAuthorizationGranted();
+                WriteToFile(DateTime.Now + ": Sage COM transaction access granted.");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                WriteToFile(DateTime.Now + ": Sage COM transaction access check failed: " + ex.Message);
+                Helpers.SyncStatus.Instance.SetNeedsComAuthorization(
+                    "Open the configured company in Sage 50 and approve Rutter transaction access.");
+                return false;
             }
         }
 
@@ -1028,11 +1072,27 @@ namespace Sage50Connector
                     WriteToFile(DateTime.Now + $": Retrieved {employees.Count} employees from Sage 50.");
                     data = employees.Cast<object>().ToList();
                     break;
+                case "TRANSACTIONS":
+                    var transactions = Sage50Repository.Instance.GetTransactions(companyName, startDate, endDate);
+                    WriteToFile(DateTime.Now + $": Retrieved {transactions.Count} GL transactions from Sage 50 COM exporter.");
+                    data = transactions.Cast<object>().ToList();
+                    break;
                 default:
                     throw new ArgumentException("Unknown platform entity: " + entity);
             }
 
-            data = FilterByDateWindow(data, startDate, endDate);
+            // TRANSACTIONS are already filtered by the COM exporter with a
+            // validated half-open date window (start <= date < end). The
+            // generic FilterByDateWindow uses string comparison and
+            // inclusive-inclusive semantics, which would both double-filter
+            // and disagree with the exporter on the end boundary. The
+            // backend also sends ISO timestamps as start_date / end_date,
+            // so string comparison against yyyy-MM-dd GL dates would be
+            // incorrect.
+            if (entity != "TRANSACTIONS")
+            {
+                data = FilterByDateWindow(data, startDate, endDate);
+            }
             WriteToFile(DateTime.Now + $": Returning {data.Count} {entity}(s) after filtering.");
             return data;
         }

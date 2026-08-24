@@ -59,12 +59,18 @@
     <Reference Include="System.Core" />
     <Reference Include="Microsoft.CSharp" />
     <Reference Include="System.Net.Http" />
+    <Reference Include="System.Security" />
+    <Reference Include="System.Xml.Linq" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Helpers\CompanyManager.cs" />
     <Compile Include="Helpers\ConnectorConfig.cs" />
+    <Compile Include="Helpers\ComCredentialProvisioner.cs" />
+    <Compile Include="Helpers\ComCredentialStore.cs" />
+    <Compile Include="Helpers\GeneralLedgerExporter.cs" />
     <Compile Include="Helpers\JobIdListCache.cs" />
     <Compile Include="Helpers\ReferenceIndex.cs" />
+    <Compile Include="Helpers\Rfc4180CsvParser.cs" />
     <Compile Include="Helpers\RuntimeEnvironment.cs" />
     <Compile Include="Helpers\AppVersion.cs" />
     <Compile Include="Helpers\ConnectorRelease.cs" />
@@ -77,6 +83,7 @@
     <Compile Include="Models\Rutter\ChartofAccount.cs" />
     <Compile Include="Models\Rutter\ChartofEmployee.cs" />
     <Compile Include="Models\Rutter\CompanyInfo.cs" />
+    <Compile Include="Models\Rutter\GlTransaction.cs" />
     <Compile Include="Models\Rutter\Transactions.cs" />
     <Compile Include="Models\Rutter\Items.cs" />
     <Compile Include="Program.cs" />

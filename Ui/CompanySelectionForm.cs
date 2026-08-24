@@ -131,6 +131,7 @@ namespace Sage50Connector.Ui
             error.Text = string.Empty;
             try
             {
+                using (var credentialEnvelope = new ComCredentialProvisioner())
                 using (var client = new HttpClient())
                 {
                     var payload = new
@@ -140,6 +141,7 @@ namespace Sage50Connector.Ui
                         company_name = selected.Identifier.CompanyName,
                         database_name = selected.Identifier.DatabaseName,
                         server_name = selected.Identifier.ServerName,
+                        com_credential_public_key = credentialEnvelope.PublicKey,
                     };
                     var response = await client.PostAsync(
                         apiBaseUrl + "/sage-50/complete-setup",
@@ -168,6 +170,8 @@ namespace Sage50Connector.Ui
                         config.Value<string>("ConnectionId"),
                         apiBaseUrl,
                         config.Value<string>("CompanyGuid"));
+                    credentialEnvelope.DecryptAndSave(
+                        body.Value<string>("com_credential_encrypted"));
                     DialogResult = DialogResult.OK;
                     Close();
                 }
