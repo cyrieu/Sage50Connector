@@ -214,7 +214,8 @@ Rutter. It shows **Approved for this version** only when Sage returns `Granted`
 for the currently running executable. A changed build shows **Approval required
 for this version**, registers the request without consuming queued Rutter jobs,
 and changes **Sync now** to **Check access**. After approving in Sage, click
-**Check access** to retry immediately; otherwise it retries every five minutes.
+**Check access** to retry immediately; otherwise onboarding retries every three
+seconds so the COM prompt follows the .NET approval without a long silent gap.
 The probe releases its Sage session after every attempt.
 
 The prompt appears **only when the company is opened**. If the company is

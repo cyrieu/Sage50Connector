@@ -526,7 +526,11 @@ namespace Sage50Connector
         /// retried as fast as the network allows.
         /// </summary>
         private static readonly TimeSpan PollDelay = TimeSpan.FromSeconds(2);
-        private static readonly TimeSpan AuthorizationRetryDelay = TimeSpan.FromMinutes(5);
+        // Authorization is an interactive onboarding sequence. Poll quickly so
+        // the COM prompt follows immediately after the customer accepts Sage's
+        // .NET dialog, without requiring them to find the tray window and click
+        // Check access. The normal no-work polling interval remains five minutes.
+        private static readonly TimeSpan AuthorizationRetryDelay = TimeSpan.FromSeconds(3);
 
         /// <summary>
         /// How many consecutive failed polls to ride out before giving up. A single
