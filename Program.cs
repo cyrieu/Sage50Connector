@@ -358,6 +358,20 @@ namespace Sage50Connector
         }
 
         private static System.Threading.ManualResetEventSlim SyncNowSignal;
+        private static int comAuthorizationRetryRequested;
+
+        /// <summary>
+        /// Called by the tray UI when a customer clicks Check access after a
+        /// denied or missing COM prompt. Wake the poll loop and perform the COM
+        /// probe even if Rutter has not queued another TRANSACTIONS job yet.
+        /// </summary>
+        public static void RequestComAuthorizationRetry()
+        {
+            System.Threading.Interlocked.Exchange(
+                ref comAuthorizationRetryRequested,
+                1);
+            SyncNowSignal?.Set();
+        }
 
         /// <summary>
         /// Sleep, but wake early if the user asked for a sync.
@@ -574,6 +588,21 @@ namespace Sage50Connector
                     await Task.Delay(PollDelay);
                 }
                 firstIteration = false;
+
+                if (System.Threading.Interlocked.Exchange(
+                        ref comAuthorizationRetryRequested,
+                        0) != 0)
+                {
+                    bool comApproved = await EnsureComAuthorizationForTransactionsAsync(
+                        CompanyName);
+                    if (!comApproved)
+                    {
+                        WriteToFile(
+                            DateTime.Now
+                                + ": Requested Sage COM access recheck did not succeed; "
+                                + "continuing with SDK-backed Rutter jobs.");
+                    }
+                }
 
                 WriteToFile("###############################--------####################################################################################");
                 WriteToFile(DateTime.Now + ": Process Started");
