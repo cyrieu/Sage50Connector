@@ -45,13 +45,14 @@ the target company file openable in the Sage 50 UI, .NET Framework 4.8.
 6. In Sage 50, sign in as an administrator, use **File → Close Company**, and
    reopen the selected company. Choose **Always Allow Access** for
    `Rutter Sage 50 Connector`.
-7. The connector then checks the separate Sage transaction/COM access. Approve
-   that company-data request too. If Sage does not display it immediately,
-   close and reopen the company once more, then click **Check access** in the
-   connector.
-8. Wait until the connector says **Sage access: Fully approved**. Initial sync
-   begins only after both checks pass. Keep Sage 50 open while General Ledger
-   transaction exports run; the other SDK entities can sync while Sage is closed.
+7. When Rutter requests accounting transactions, the connector checks the
+   separate Sage transaction/COM access. Approve that company-data request too.
+   If Sage does not display it immediately, close and reopen the company once
+   more, then click **Check access** in the connector.
+8. Keep Sage 50 open while General Ledger transaction exports run. Other SDK
+   entities can sync while Sage is closed; if transaction access is not yet
+   approved, that transaction job is reported with an actionable error and can
+   be retried after approval.
 
 The MSI and setup link never ask the customer for Rutter's Sage partner
 credential. Rutter sends it encrypted to a one-use key created by the connector,

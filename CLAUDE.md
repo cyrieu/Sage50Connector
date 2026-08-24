@@ -578,10 +578,11 @@ Operating constraints (from the 2026-08-20 spike against Bellwether):
   current-user DPAPI. An authenticated `/sage-50/com-credential` recovery route
   provisions upgrades or deleted local state. The old diagnostic CLIXML remains
   a migration-only fallback and is converted automatically when found.
-- Startup requires credential provisioning, the normal .NET SDK grant, and the
-  COM company grant before polling Rutter. This deliberately makes raw GL access
-  part of every Sage 50 connection rather than allowing a partially authorized
-  installation to fail later on a TRANSACTIONS job.
+- The normal .NET SDK grant is required before polling Rutter. COM credential
+  provisioning and the COM company grant are checked lazily when Rutter
+  requests `TRANSACTIONS`, so a missing transaction permission does not block
+  accounts, customers, vendors, or the other SDK entities. The transaction job
+  receives an actionable error and can be retried after approval.
 - One posting order can include multiple journal codes (e.g., sales + COGS).
   These stay in one balanced transaction. `headerConsistent` is true only when
   all lines share one normalized date and one normalized reference; all-blank

@@ -540,9 +540,7 @@ namespace Sage50Connector
 
         static async Task MainAsync(string AccessKey, string CompanyName, string ConnectionId)
         {
-            await WaitForComCredentialProvisioningAsync();
             await WaitForSageAuthorizationAsync(CompanyName);
-            await WaitForComAuthorizationAsync(CompanyName);
 
             bool firstIteration = true;
             int consecutivePollFailures = 0;
@@ -564,6 +562,19 @@ namespace Sage50Connector
                     switch (job.type)
                     {
                         case "LIST_FETCH":
+                            if (job.platform_entity == "TRANSACTIONS"
+                                && !await EnsureComAuthorizationForTransactionsAsync(CompanyName))
+                            {
+                                await ReportUnsupportedJob(
+                                    job,
+                                    AccessKey,
+                                    "Sage transaction access is not approved for this company. "
+                                        + "Open the configured company in Sage 50, approve Rutter transaction access, "
+                                        + "then retry the transaction sync.");
+                                Helpers.SyncStatus.Instance.SetNeedsComAuthorization(
+                                    "Open the configured company in Sage 50 and approve Rutter transaction access, then retry the transaction sync.");
+                                break;
+                            }
                             await HandleListFetchJob(job, AccessKey, CompanyName);
                             break;
                         case "CREATE":
@@ -710,52 +721,29 @@ namespace Sage50Connector
             }
         }
 
-        private static async Task WaitForComCredentialProvisioningAsync()
-        {
-            while (true)
-            {
-                Helpers.SyncStatus.Instance.SetCheckingComAuthorization(
-                    "Preparing Sage transaction access…");
-                try
-                {
-                    await ComCredentialProvisioner.EnsureProvisionedAsync(Config);
-                    return;
-                }
-                catch (Exception ex)
-                {
-                    WriteToFile(DateTime.Now + ": Sage COM credential provisioning failed: " + ex.Message);
-                    Helpers.SyncStatus.Instance.SetComAuthorizationCheckFailed(
-                        "Could not prepare Sage transaction access. Rutter will retry automatically.");
-                    await DelayInterruptible(AuthorizationRetryDelay);
-                }
-            }
-        }
-
         /// <summary>
         /// The COM General Ledger exporter has its own Sage access handshake.
-        /// Treat it as mandatory for every connection so accounting-transactions
-        /// cannot begin with a partially authorized installation.
+        /// It is checked only when Rutter asks for TRANSACTIONS so a missing COM
+        /// grant does not block unrelated SDK entities.
         /// </summary>
-        private static async Task WaitForComAuthorizationAsync(string companyName)
+        private static async Task<bool> EnsureComAuthorizationForTransactionsAsync(string companyName)
         {
-            while (true)
+            Helpers.SyncStatus.Instance.SetCheckingComAuthorization(
+                "Checking Sage transaction access…");
+            try
             {
-                Helpers.SyncStatus.Instance.SetCheckingComAuthorization(
-                    "Checking Sage transaction access…");
-                try
-                {
-                    GeneralLedgerExporter.ProbeAccess(companyName, CompanyGuid);
-                    Helpers.SyncStatus.Instance.SetComAuthorizationGranted();
-                    WriteToFile(DateTime.Now + ": Sage COM transaction access granted.");
-                    return;
-                }
-                catch (Exception ex)
-                {
-                    WriteToFile(DateTime.Now + ": Sage COM transaction access check failed: " + ex.Message);
-                    Helpers.SyncStatus.Instance.SetNeedsComAuthorization(
-                        "Open the configured company in Sage 50 and approve Rutter transaction access.");
-                }
-                await DelayInterruptible(AuthorizationRetryDelay);
+                await ComCredentialProvisioner.EnsureProvisionedAsync(Config);
+                GeneralLedgerExporter.ProbeAccess(companyName, CompanyGuid);
+                Helpers.SyncStatus.Instance.SetComAuthorizationGranted();
+                WriteToFile(DateTime.Now + ": Sage COM transaction access granted.");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                WriteToFile(DateTime.Now + ": Sage COM transaction access check failed: " + ex.Message);
+                Helpers.SyncStatus.Instance.SetNeedsComAuthorization(
+                    "Open the configured company in Sage 50 and approve Rutter transaction access.");
+                return false;
             }
         }
 
