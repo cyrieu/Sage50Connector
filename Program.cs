@@ -8,7 +8,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
-using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -530,7 +529,9 @@ namespace Sage50Connector
         private static readonly TimeSpan AuthorizationRetryDelay = TimeSpan.FromMinutes(5);
         private static readonly TimeSpan AuthorizationWindowPollDelay = TimeSpan.FromMilliseconds(250);
 
-        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        [System.Runtime.InteropServices.DllImport(
+            "user32.dll",
+            CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
         private static extern IntPtr FindWindow(string className, string windowName);
 
         /// <summary>
