@@ -865,8 +865,10 @@ It registers both the tray connector under the machine-wide `Run` key and the
 `rutter-sage50` URL protocol. After installation, return to Rutter Link and click
 **Choose company in connector**. The deep link opens the selector and provisions
 the chosen company plus an RSA-encrypted COM application credential. The customer
-must then approve both the normal SDK request and the transaction/COM request in
-Sage as the same Windows user. No sync job is consumed until both are granted.
+must approve the normal SDK request in Sage as the same Windows user. The
+connector also requests transaction/COM access upfront; if it is denied or
+unavailable, SDK-backed data still syncs and only General Ledger transactions
+remain unavailable until that second permission is granted.
 
 **A successful build proves nothing about the installer.** Test with an actual
 install, verify the custom protocol opens the installed executable, and read
