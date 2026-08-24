@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -526,11 +527,11 @@ namespace Sage50Connector
         /// retried as fast as the network allows.
         /// </summary>
         private static readonly TimeSpan PollDelay = TimeSpan.FromSeconds(2);
-        // Authorization is an interactive onboarding sequence. Poll quickly so
-        // the COM prompt follows immediately after the customer accepts Sage's
-        // .NET dialog, without requiring them to find the tray window and click
-        // Check access. The normal no-work polling interval remains five minutes.
-        private static readonly TimeSpan AuthorizationRetryDelay = TimeSpan.FromSeconds(3);
+        private static readonly TimeSpan AuthorizationRetryDelay = TimeSpan.FromMinutes(5);
+        private static readonly TimeSpan AuthorizationWindowPollDelay = TimeSpan.FromMilliseconds(250);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern IntPtr FindWindow(string className, string windowName);
 
         /// <summary>
         /// How many consecutive failed polls to ride out before giving up. A single
@@ -694,6 +695,47 @@ namespace Sage50Connector
         }
 
         /// <summary>
+        /// RequestAccess(Pending) registers one Sage request. Calling it again
+        /// every few seconds queues duplicate Third Party Application Access
+        /// dialogs when the company next opens. Instead, watch Sage's first
+        /// dialog open and close, then recheck exactly once. Check access can
+        /// still wake this immediately, and the long fallback handles a missed
+        /// or localized window title.
+        /// </summary>
+        private static async Task WaitForSageApprovalDialogOrRetryAsync()
+        {
+            await Task.Run(() =>
+            {
+                bool sawApprovalDialog = false;
+                DateTime retryAt = DateTime.UtcNow.Add(AuthorizationRetryDelay);
+                while (DateTime.UtcNow < retryAt)
+                {
+                    bool dialogVisible = FindWindow(null, "Third Party Application Access") != IntPtr.Zero;
+                    if (dialogVisible)
+                    {
+                        sawApprovalDialog = true;
+                    }
+                    else if (sawApprovalDialog)
+                    {
+                        WriteToFile(DateTime.Now + ": Sage approval dialog closed; rechecking authorization once.");
+                        return;
+                    }
+
+                    var signal = SyncNowSignal;
+                    if (signal != null && signal.Wait(AuthorizationWindowPollDelay))
+                    {
+                        signal.Reset();
+                        return;
+                    }
+                    if (signal == null)
+                    {
+                        System.Threading.Thread.Sleep(AuthorizationWindowPollDelay);
+                    }
+                }
+            });
+        }
+
+        /// <summary>
         /// Prove that Sage granted this exact executable access before accepting
         /// work from Rutter. APIACCSS.DAT contains requested and granted hashes,
         /// so reading that file cannot distinguish approval; RequestAccess can.
@@ -756,7 +798,7 @@ namespace Sage50Connector
                     Helpers.Sage50Connector.Instance.Shutdown();
                 }
 
-                await DelayInterruptible(AuthorizationRetryDelay);
+                await WaitForSageApprovalDialogOrRetryAsync();
             }
         }
 
