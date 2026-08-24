@@ -48,10 +48,12 @@ the target company file openable in the Sage 50 UI, .NET Framework 4.8.
 7. Before starting the initial sync, the connector immediately checks Sage's
    separate transaction/COM access. Keep the company open; in the **Peachtree
    Software** prompt, check **Remember this setting** and click **Yes**.
-8. The connector shows **Sage access: Fully approved** and starts syncing. If
-   either prompt was dismissed, follow the displayed instructions and click
-   **Check access** to retry immediately. Keep Sage 50 open whenever General
-   Ledger transaction exports run; other SDK entities can sync while it is closed.
+8. The connector starts syncing after that first COM attempt. If the COM prompt
+   is dismissed, denied, or unavailable, accounts, customers, vendors, invoices,
+   and the other SDK entities continue normally; only General Ledger
+   `TRANSACTIONS` are reported unavailable. Follow the displayed instructions
+   and click **Check access** to retry. Keep Sage 50 open whenever General Ledger
+   transaction exports run; other SDK entities can sync while it is closed.
 
 The MSI and setup link never ask the customer for Rutter's Sage partner
 credential. Rutter sends it encrypted to a one-use key created by the connector,

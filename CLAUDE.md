@@ -591,8 +591,10 @@ one-time prompts too, but preserves `APIACCSS.DAT` and the connector's existing
 .NET approval. If the COM prompt still does not appear, exit the connector,
 close and reopen the company as an administrator, and start the connector
 again. Current builds check COM immediately after the normal .NET approval, so
-startup itself exercises this path before polling Rutter. Older builds require
-a `TRANSACTIONS` job to reach the lazy check.
+startup itself exercises this path before polling Rutter. A failed or denied
+COM check does not stop polling: SDK-backed entities continue, while each
+`TRANSACTIONS` job is reported failed with an actionable authorization message.
+Older builds require a `TRANSACTIONS` job to reach the lazy check.
 
 The COM exporter always dumps the whole ledger to CSV. The connector does
 **not** call `SetDateFilterValue` at all — the spike proved
@@ -639,10 +641,12 @@ Operating constraints (from the 2026-08-20 spike against Bellwether):
   remembered COM prompt.
 - The normal .NET SDK grant is required before polling Rutter. Immediately after
   it succeeds, startup provisions the COM credential and probes the COM company
-  grant while Sage is still open from the first approval. Both grants therefore
-  form one onboarding gate and no `TRANSACTIONS` job is consumed merely to
-  discover missing permission. The transaction handler retains the same probe
-  as a defensive fallback if Sage's remembered COM setting is reset later.
+  grant while Sage is still open from the first approval. This upfront COM probe
+  is best-effort: denying it or failing to display it does not block accounts,
+  customers, vendors, invoices, or any other SDK-backed entity. Only
+  `TRANSACTIONS` requires COM; its handler repeats the probe and reports that job
+  failed with an actionable message if access is still unavailable, allowing
+  the queue to advance to the remaining entities.
 - One posting order can include multiple journal codes (e.g., sales + COGS).
   These stay in one balanced transaction. `headerConsistent` is true only when
   all lines share one normalized date and one normalized reference; all-blank

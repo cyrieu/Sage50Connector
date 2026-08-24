@@ -550,7 +550,14 @@ namespace Sage50Connector
             if (sdkApprovalWasRequired
                 || !ComCredentialStore.IsAuthorizationConfirmed(CompanyGuid, CompanyName))
             {
-                await WaitForComAuthorizationAsync(CompanyName);
+                bool comApproved = await EnsureComAuthorizationForTransactionsAsync(CompanyName);
+                if (!comApproved)
+                {
+                    WriteToFile(
+                        DateTime.Now
+                            + ": Sage COM transaction access is unavailable. Continuing to poll Rutter; "
+                            + "only TRANSACTIONS jobs will fail until transaction access is approved.");
+                }
             }
             else
             {
@@ -673,29 +680,6 @@ namespace Sage50Connector
         }
 
         /// <summary>
-        /// Complete Sage's second, COM-specific company-data approval before
-        /// accepting any work from Rutter. At this point the customer has just
-        /// reopened the configured company to grant the normal SDK request, so
-        /// Sage is in exactly the state required to show the COM prompt too.
-        ///
-        /// Keeping this ahead of the first poll makes authorization one coherent
-        /// onboarding step and prevents a TRANSACTIONS job from being consumed
-        /// merely to discover that its permission is still pending.
-        /// </summary>
-        private static async Task WaitForComAuthorizationAsync(string companyName)
-        {
-            while (true)
-            {
-                if (await EnsureComAuthorizationForTransactionsAsync(companyName))
-                {
-                    return;
-                }
-
-                await DelayInterruptible(AuthorizationRetryDelay);
-            }
-        }
-
-        /// <summary>
         /// RequestAccess(Pending) registers one Sage request. Calling it again
         /// every few seconds queues duplicate Third Party Application Access
         /// dialogs when the company next opens. Instead, watch Sage's first
@@ -805,10 +789,10 @@ namespace Sage50Connector
 
         /// <summary>
         /// The COM General Ledger exporter has its own Sage access handshake.
-        /// Startup checks this immediately after the normal SDK grant. The
-        /// TRANSACTIONS handler also calls it as a defensive fallback in case
-        /// Sage's remembered permission is later reset while the connector is
-        /// running.
+        /// Startup checks this immediately after the normal SDK grant, but a
+        /// denied or unavailable COM grant must not block SDK-backed entities.
+        /// The TRANSACTIONS handler calls it again and reports only that job as
+        /// failed until Sage's remembered permission is granted.
         /// </summary>
         private static async Task<bool> EnsureComAuthorizationForTransactionsAsync(string companyName)
         {
