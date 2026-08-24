@@ -454,12 +454,14 @@ namespace Sage50Connector
 
             try
             {
+                using (var credentialEnvelope = new ComCredentialProvisioner())
                 using (HttpClient client = new HttpClient())
                 {
                     var requestBody = new
                     {
                         company_id = companyName,
-                        org_id = orgId
+                        org_id = orgId,
+                        com_credential_public_key = credentialEnvelope.PublicKey
                     };
 
                     var request = new HttpRequestMessage(HttpMethod.Post, saveIdUrl);
@@ -493,6 +495,8 @@ namespace Sage50Connector
                         sage50Config.Value<string>("ConnectionId"),
                         apiBaseUrl
                     );
+                    credentialEnvelope.DecryptAndSave(
+                        body.Value<string>("com_credential_encrypted"));
 
                     WriteToFile(
                         "Setup complete. Wrote "
@@ -536,7 +540,9 @@ namespace Sage50Connector
 
         static async Task MainAsync(string AccessKey, string CompanyName, string ConnectionId)
         {
+            await WaitForComCredentialProvisioningAsync();
             await WaitForSageAuthorizationAsync(CompanyName);
+            await WaitForComAuthorizationAsync(CompanyName);
 
             bool firstIteration = true;
             int consecutivePollFailures = 0;
@@ -700,6 +706,55 @@ namespace Sage50Connector
                     Helpers.Sage50Connector.Instance.Shutdown();
                 }
 
+                await DelayInterruptible(AuthorizationRetryDelay);
+            }
+        }
+
+        private static async Task WaitForComCredentialProvisioningAsync()
+        {
+            while (true)
+            {
+                Helpers.SyncStatus.Instance.SetCheckingComAuthorization(
+                    "Preparing Sage transaction access…");
+                try
+                {
+                    await ComCredentialProvisioner.EnsureProvisionedAsync(Config);
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    WriteToFile(DateTime.Now + ": Sage COM credential provisioning failed: " + ex.Message);
+                    Helpers.SyncStatus.Instance.SetComAuthorizationCheckFailed(
+                        "Could not prepare Sage transaction access. Rutter will retry automatically.");
+                    await DelayInterruptible(AuthorizationRetryDelay);
+                }
+            }
+        }
+
+        /// <summary>
+        /// The COM General Ledger exporter has its own Sage access handshake.
+        /// Treat it as mandatory for every connection so accounting-transactions
+        /// cannot begin with a partially authorized installation.
+        /// </summary>
+        private static async Task WaitForComAuthorizationAsync(string companyName)
+        {
+            while (true)
+            {
+                Helpers.SyncStatus.Instance.SetCheckingComAuthorization(
+                    "Checking Sage transaction access…");
+                try
+                {
+                    GeneralLedgerExporter.ProbeAccess(companyName, CompanyGuid);
+                    Helpers.SyncStatus.Instance.SetComAuthorizationGranted();
+                    WriteToFile(DateTime.Now + ": Sage COM transaction access granted.");
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    WriteToFile(DateTime.Now + ": Sage COM transaction access check failed: " + ex.Message);
+                    Helpers.SyncStatus.Instance.SetNeedsComAuthorization(
+                        "Open the configured company in Sage 50 and approve Rutter transaction access.");
+                }
                 await DelayInterruptible(AuthorizationRetryDelay);
             }
         }

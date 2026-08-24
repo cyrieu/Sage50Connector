@@ -57,6 +57,7 @@ namespace Sage50Connector.Helpers
         private DateTime? lastSyncAt;
         private string companyName;
         private SageAuthorizationState sageAuthorization = SageAuthorizationState.Unknown;
+        private SageAuthorizationState comAuthorization = SageAuthorizationState.Unknown;
         private UpdateAvailability updateAvailability = UpdateAvailability.Unknown;
         private string updateMessage;
         private string availableVersion;
@@ -69,6 +70,7 @@ namespace Sage50Connector.Helpers
         public DateTime? LastSyncAt { get { lock (gate) { return lastSyncAt; } } }
         public string CompanyName { get { lock (gate) { return companyName; } } }
         public SageAuthorizationState SageAuthorization { get { lock (gate) { return sageAuthorization; } } }
+        public SageAuthorizationState ComAuthorization { get { lock (gate) { return comAuthorization; } } }
         public UpdateAvailability UpdateAvailability { get { lock (gate) { return updateAvailability; } } }
         public string UpdateMessage { get { lock (gate) { return updateMessage; } } }
         public string AvailableVersion { get { lock (gate) { return availableVersion; } } }
@@ -226,6 +228,54 @@ namespace Sage50Connector.Helpers
             {
                 state = ConnectorState.Error;
                 sageAuthorization = SageAuthorizationState.Unknown;
+                message = text;
+                currentEntity = null;
+            }
+            Raise();
+        }
+
+        public void SetCheckingComAuthorization(string text)
+        {
+            lock (gate)
+            {
+                state = ConnectorState.Starting;
+                comAuthorization = SageAuthorizationState.Checking;
+                message = text;
+                currentEntity = null;
+            }
+            Raise();
+        }
+
+        public void SetComAuthorizationGranted()
+        {
+            lock (gate)
+            {
+                state = ConnectorState.Idle;
+                comAuthorization = SageAuthorizationState.Granted;
+                message = "All Sage 50 access is approved. Checking Rutter…";
+                currentEntity = null;
+            }
+            Raise();
+        }
+
+        public void SetNeedsComAuthorization(string text)
+        {
+            lock (gate)
+            {
+                state = ConnectorState.NeedsAuthorization;
+                comAuthorization = SageAuthorizationState.Required;
+                message = text;
+                currentEntity = null;
+            }
+            Raise();
+        }
+
+        public void SetComAuthorizationCheckFailed(string text)
+        {
+            lock (gate)
+            {
+                state = ConnectorState.Error;
+                comAuthorization = SageAuthorizationState.Unknown;
                 message = text;
                 currentEntity = null;
             }

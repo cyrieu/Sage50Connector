@@ -37,6 +37,79 @@ namespace Sage50Connector.Helpers
                 { "ASBY", 8 },
             };
 
+        /// <summary>
+        /// Exercises the COM login and company attachment without exporting the
+        /// ledger. Sage uses this call to surface its separate third-party access
+        /// prompt, so startup can wait for the full transaction permission.
+        /// </summary>
+        public static void ProbeAccess(string companyName, string companyGuid)
+        {
+            SageComCredential credential = ComCredentialStore.Load();
+            object loginSelector = null;
+            object login = null;
+            object application = null;
+            try
+            {
+                try
+                {
+                    Type selectorType = Type.GetTypeFromProgID("PeachtreeAccounting.LoginSelector");
+                    if (selectorType != null)
+                    {
+                        loginSelector = Activator.CreateInstance(selectorType);
+                        login = InvokeMethod(selectorType, loginSelector, "GetCurrentLoginObject");
+                    }
+                }
+                catch
+                {
+                    SafeReleaseComObject(ref loginSelector);
+                    login = null;
+                }
+
+                if (login == null)
+                {
+                    Type loginType = Type.GetTypeFromProgID("PeachtreeAccounting.Login.33");
+                    if (loginType == null)
+                        throw new InvalidOperationException(
+                            "Sage 50 transaction access is not installed. Repair or reinstall Sage 50.");
+                    login = Activator.CreateInstance(loginType);
+                }
+
+                application = InvokeMethod(login.GetType(), login, "GetApplication",
+                    new object[] { credential.UserName, credential.Password });
+                credential = default(SageComCredential);
+                Type appType = application.GetType();
+                bool companyIsOpen = (bool)GetProperty(appType, application, "CompanyIsOpen");
+                if (!companyIsOpen)
+                {
+                    InvokeMethod(appType, application, "OpenPreviousCompany");
+                    companyIsOpen = (bool)GetProperty(appType, application, "CompanyIsOpen");
+                }
+                if (!companyIsOpen)
+                    throw new InvalidOperationException(
+                        "Open the configured company in Sage 50 to approve transaction access.");
+
+                string actualName = (string)GetProperty(appType, application, "CurrentCompanyName");
+                if (!string.Equals(actualName, companyName, StringComparison.Ordinal))
+                    throw new InvalidOperationException(
+                        "Open the configured company '" + companyName + "' in Sage 50.");
+
+                string actualGuid = (string)GetProperty(appType, application, "CurrentCompanyGUID");
+                if (!string.IsNullOrWhiteSpace(companyGuid) && !string.IsNullOrWhiteSpace(actualGuid)
+                    && !string.Equals(actualGuid.Trim('{', '}'), companyGuid, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException(
+                        "The company open in Sage 50 is not the configured company.");
+            }
+            finally
+            {
+                credential = default(SageComCredential);
+                SafeReleaseComObject(ref application);
+                SafeReleaseComObject(ref login);
+                SafeReleaseComObject(ref loginSelector);
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+            }
+        }
+
         public static List<GlTransactionBody> ExportTransactions(
             string companyName,
             string companyGuid,
@@ -61,7 +134,7 @@ namespace Sage50Connector.Helpers
                     $"TRANSACTIONS end_date must be strictly greater than start_date. " +
                     $"Got start_date='{startDate}', end_date='{endDate}'.");
 
-            ComCredential cred = LoadComCredential(credentialPath);
+            SageComCredential cred = ComCredentialStore.Load();
 
             object loginSelector = null;
             object login = null;

@@ -337,7 +337,9 @@ namespace Sage50Connector.Ui
         private void RequestSyncNow()
         {
             if (SyncStatus.Instance.SageAuthorization == SageAuthorizationState.Required
-                || SyncStatus.Instance.SageAuthorization == SageAuthorizationState.Checking)
+                || SyncStatus.Instance.SageAuthorization == SageAuthorizationState.Checking
+                || SyncStatus.Instance.ComAuthorization == SageAuthorizationState.Required
+                || SyncStatus.Instance.ComAuthorization == SageAuthorizationState.Checking)
             {
                 SyncStatus.Instance.SetCheckingAuthorization();
             }

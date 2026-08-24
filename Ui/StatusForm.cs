@@ -186,7 +186,18 @@ namespace Sage50Connector.Ui
                     break;
             }
 
-            switch (s.SageAuthorization)
+            if (s.SageAuthorization == SageAuthorizationState.Granted
+                && s.ComAuthorization == SageAuthorizationState.Granted)
+            {
+                authorizationLabel.Text = "Sage access: Fully approved";
+                authorizationLabel.ForeColor = Color.FromArgb(22, 101, 52);
+            }
+            else if (s.ComAuthorization == SageAuthorizationState.Required)
+            {
+                authorizationLabel.Text = "Sage access: Transaction approval required";
+                authorizationLabel.ForeColor = Color.FromArgb(146, 64, 14);
+            }
+            else switch (s.SageAuthorization)
             {
                 case SageAuthorizationState.Granted:
                     authorizationLabel.Text = "Sage access: Approved for this version";
@@ -206,12 +217,14 @@ namespace Sage50Connector.Ui
                     break;
             }
 
-            bool needsAuthorization = s.SageAuthorization == SageAuthorizationState.Required;
+            bool needsAuthorization = s.SageAuthorization == SageAuthorizationState.Required
+                || s.ComAuthorization == SageAuthorizationState.Required;
             authPanel.Visible = needsAuthorization;
             syncNowButton.Text = needsAuthorization ? "Check access" : "Sync now";
 
             bool syncing = s.State == ConnectorState.Syncing
-                || s.SageAuthorization == SageAuthorizationState.Checking;
+                || s.SageAuthorization == SageAuthorizationState.Checking
+                || s.ComAuthorization == SageAuthorizationState.Checking;
             progress.Visible = syncing;
             if (syncing)
             {
