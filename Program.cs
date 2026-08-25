@@ -362,8 +362,9 @@ namespace Sage50Connector
 
         /// <summary>
         /// Called by the tray UI when a customer clicks Check access after a
-        /// denied or missing COM prompt. Wake the poll loop and perform the COM
-        /// probe even if Rutter has not queued another TRANSACTIONS job yet.
+        /// denied or missing COM prompt. Wake the poll loop, perform the COM
+        /// probe, and poll Rutter immediately when the probe succeeds even if
+        /// Rutter has not queued another TRANSACTIONS job yet.
         /// </summary>
         public static void RequestComAuthorizationRetry()
         {
@@ -385,8 +386,11 @@ namespace Sage50Connector
                 return;
             }
 
-            await Task.Run(() => signal.Wait(delay));
-            signal.Reset();
+            bool wasSignaled = await Task.Run(() => signal.Wait(delay));
+            if (wasSignaled)
+            {
+                signal.Reset();
+            }
         }
 
         private static int sageSessionReleased;
@@ -583,19 +587,36 @@ namespace Sage50Connector
             int consecutivePollFailures = 0;
             while (true)
             {
-                if (!firstIteration)
+                bool comRetryRequested = System.Threading.Interlocked.Exchange(
+                    ref comAuthorizationRetryRequested,
+                    0) != 0;
+
+                // A click on Check access means "check, then sync". The signal
+                // has already cut the five-minute NOOP sleep short; do not add
+                // the ordinary between-poll delay before honoring that request.
+                if (!firstIteration && !comRetryRequested)
                 {
-                    await Task.Delay(PollDelay);
+                    await DelayInterruptible(PollDelay);
+                    // Catch a Check access click that arrived after the first
+                    // exchange but while the short poll delay was in progress.
+                    comRetryRequested = System.Threading.Interlocked.Exchange(
+                        ref comAuthorizationRetryRequested,
+                        0) != 0;
                 }
                 firstIteration = false;
 
-                if (System.Threading.Interlocked.Exchange(
-                        ref comAuthorizationRetryRequested,
-                        0) != 0)
+                if (comRetryRequested)
                 {
                     bool comApproved = await EnsureComAuthorizationForTransactionsAsync(
                         CompanyName);
-                    if (!comApproved)
+                    if (comApproved)
+                    {
+                        Helpers.SyncStatus.Instance.SetChecking();
+                        WriteToFile(
+                            DateTime.Now
+                                + ": Requested Sage COM access recheck succeeded; polling Rutter immediately.");
+                    }
+                    else
                     {
                         WriteToFile(
                             DateTime.Now

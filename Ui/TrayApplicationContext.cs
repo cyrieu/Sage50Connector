@@ -352,6 +352,9 @@ namespace Sage50Connector.Ui
             {
                 SyncStatus.Instance.SetCheckingComAuthorization(
                     "Checking Sage transaction access…");
+                // This both retries the optional COM approval and wakes the
+                // connector so a successful check is followed by an immediate
+                // poll for sync work.
                 Program.RequestComAuthorizationRetry();
                 return;
             }

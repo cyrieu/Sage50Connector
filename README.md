@@ -52,8 +52,9 @@ the target company file openable in the Sage 50 UI, .NET Framework 4.8.
    is dismissed, denied, or unavailable, accounts, customers, vendors, invoices,
    and the other SDK entities continue normally; only General Ledger
    `TRANSACTIONS` are reported unavailable. Follow the displayed instructions
-   and click **Check access** to retry. Keep Sage 50 open whenever General Ledger
-   transaction exports run; other SDK entities can sync while it is closed.
+   and click **Check access** to retry. A successful check immediately polls
+   Rutter for sync work. Keep Sage 50 open whenever General Ledger transaction
+   exports run; other SDK entities can sync while it is closed.
 
 The MSI and setup link never ask the customer for Rutter's Sage partner
 credential. Rutter sends it encrypted to a one-use key created by the connector,
