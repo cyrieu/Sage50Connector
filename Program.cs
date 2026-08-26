@@ -9,6 +9,7 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Sage50Connector
@@ -120,8 +121,8 @@ namespace Sage50Connector
         /// Entry point.
         ///
         ///   --setup ...   provision sage50Config.json and exit
-        ///   --headless    run the sync loop with no UI (used by the service, and
-        ///                 handy for scripted testing on the VM)
+        ///   --headless    run the supervised sync loop with no UI (handy for
+        ///                 scripted testing on the VM)
         ///   (no args)     run as a tray application — the normal way a customer
         ///                 runs this, and the reason the exe is a WinExe: a console
         ///                 window has no business appearing on someone's desktop
@@ -149,7 +150,7 @@ namespace Sage50Connector
                 return RunTray();
             }
 
-            return RunHeadless();
+            return RunSyncLoopHeadless();
         }
 
         /// <summary>
@@ -209,7 +210,7 @@ namespace Sage50Connector
             }
         }
 
-        private static int RunHeadless()
+        private static int RunHeadless(CancellationToken cancellationToken)
         {
             try
             {
@@ -254,7 +255,7 @@ namespace Sage50Connector
 
             try
             {
-                MainAsync(AccessKey, CompanyName, ConnectionId).GetAwaiter().GetResult();
+                MainAsync(AccessKey, CompanyName, ConnectionId, cancellationToken).GetAwaiter().GetResult();
             }
             finally
             {
@@ -336,28 +337,67 @@ namespace Sage50Connector
 
         /// <summary>
         /// The sync loop, for hosts that supply their own UI (the tray app) or no
-        /// UI at all (the service). Loads config, reports status, and never throws
-        /// at the caller — a host should not die because a sync did.
+        /// UI at all. Loads config and supervises the sync worker so an unexpected
+        /// fault cannot leave a live tray process that no longer polls.
         /// </summary>
         /// <param name="syncNow">
         /// Optional: set by the host to cut a between-poll sleep short, so
         /// "Sync now" does something immediately.
         /// </param>
-        public static void RunSyncLoopHeadless(System.Threading.ManualResetEventSlim syncNow = null)
+        public static int RunSyncLoopHeadless(
+            ManualResetEventSlim syncNow = null,
+            CancellationToken cancellationToken = default(CancellationToken))
         {
             SyncNowSignal = syncNow;
-            try
+            int consecutiveWorkerFailures = 0;
+            while (!cancellationToken.IsCancellationRequested)
             {
-                RunHeadless();
+                try
+                {
+                    int result = RunHeadless(cancellationToken);
+                    if (result != 0 || cancellationToken.IsCancellationRequested)
+                    {
+                        return result;
+                    }
+
+                    throw new InvalidOperationException("The sync worker stopped without a shutdown request.");
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    return 0;
+                }
+                catch (Exception ex)
+                {
+                    consecutiveWorkerFailures++;
+                    ReleaseSageSession();
+                    TimeSpan restartDelay = CalculateRetryDelay(consecutiveWorkerFailures);
+                    WriteToFile(
+                        DateTime.Now
+                            + ": Sync worker stopped unexpectedly: "
+                            + ex
+                            + ". Restarting in "
+                            + Math.Ceiling(restartDelay.TotalSeconds)
+                            + "s."
+                    );
+                    Helpers.SyncStatus.Instance.SetOffline(
+                        "Sync worker stopped unexpectedly. Restarting in "
+                            + Math.Ceiling(restartDelay.TotalSeconds)
+                            + " seconds…");
+                    try
+                    {
+                        DelayInterruptible(restartDelay, cancellationToken).GetAwaiter().GetResult();
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        return 0;
+                    }
+                }
             }
-            catch (Exception ex)
-            {
-                WriteToFile("Sync loop ended unexpectedly: " + ex.Message);
-                Helpers.SyncStatus.Instance.SetError("Stopped: " + ex.Message);
-            }
+
+            return 0;
         }
 
-        private static System.Threading.ManualResetEventSlim SyncNowSignal;
+        private static ManualResetEventSlim SyncNowSignal;
         private static int comAuthorizationRetryRequested;
 
         /// <summary>
@@ -368,7 +408,7 @@ namespace Sage50Connector
         /// </summary>
         public static void RequestComAuthorizationRetry()
         {
-            System.Threading.Interlocked.Exchange(
+            Interlocked.Exchange(
                 ref comAuthorizationRetryRequested,
                 1);
             SyncNowSignal?.Set();
@@ -377,20 +417,47 @@ namespace Sage50Connector
         /// <summary>
         /// Sleep, but wake early if the user asked for a sync.
         /// </summary>
-        private static async Task DelayInterruptible(TimeSpan delay)
+        private static async Task DelayInterruptible(
+            TimeSpan delay,
+            CancellationToken cancellationToken)
         {
             var signal = SyncNowSignal;
             if (signal == null)
             {
-                await Task.Delay(delay);
+                await Task.Delay(delay, cancellationToken);
                 return;
             }
 
-            bool wasSignaled = await Task.Run(() => signal.Wait(delay));
+            bool wasSignaled = await Task.Run(
+                () => signal.Wait(delay, cancellationToken),
+                cancellationToken);
             if (wasSignaled)
             {
                 signal.Reset();
             }
+        }
+
+        private static readonly object RetryRandomGate = new object();
+        private static readonly Random RetryRandom = new Random();
+        private static readonly TimeSpan MaximumRetryDelay = TimeSpan.FromMinutes(5);
+
+        /// <summary>
+        /// 2s, 4s, 8s... capped at five minutes, with +/-20% jitter so many
+        /// connectors do not all hit Rutter at once when an outage clears.
+        /// </summary>
+        internal static TimeSpan CalculateRetryDelay(int consecutiveFailures)
+        {
+            int exponent = Math.Max(1, Math.Min(consecutiveFailures, 20));
+            double baseSeconds = Math.Min(
+                MaximumRetryDelay.TotalSeconds,
+                Math.Pow(2, exponent));
+            double jitter;
+            lock (RetryRandomGate)
+            {
+                jitter = 0.8 + (RetryRandom.NextDouble() * 0.4);
+            }
+            return TimeSpan.FromSeconds(
+                Math.Min(MaximumRetryDelay.TotalSeconds, baseSeconds * jitter));
         }
 
         private static int sageSessionReleased;
@@ -408,9 +475,9 @@ namespace Sage50Connector
 
         private static void InstallSageSessionCleanup()
         {
-            // The service calls Main once a minute in a single process, so arm the
-            // release for this run but only ever register the handlers once.
-            System.Threading.Interlocked.Exchange(ref sageSessionReleased, 0);
+            // A supervisor can start another worker in the same process, so arm
+            // the release for this run but only register the handlers once.
+            Interlocked.Exchange(ref sageSessionReleased, 0);
 
             if (sageCleanupInstalled)
             {
@@ -429,7 +496,7 @@ namespace Sage50Connector
         /// </summary>
         public static void ReleaseSageSession()
         {
-            if (System.Threading.Interlocked.Exchange(ref sageSessionReleased, 1) != 0)
+            if (Interlocked.Exchange(ref sageSessionReleased, 1) != 0)
             {
                 return;
             }
@@ -553,18 +620,19 @@ namespace Sage50Connector
         private static extern IntPtr FindWindow(string className, string windowName);
 
         /// <summary>
-        /// How many consecutive failed polls to ride out before giving up. A single
-        /// blip - Rutter restarting, the tunnel dropping, the machine waking from
-        /// sleep - used to end the process for good, because a null job broke the
-        /// loop. Retrying a few times with backoff survives that; exiting after a
-        /// sustained outage is still correct, since the service restarts us a
-        /// minute later and a one-shot run should not spin forever.
+        /// Authorize Sage once, then continuously poll and service Rutter jobs.
+        /// Network failures remain inside this loop; unexpected faults escape to
+        /// RunSyncLoopHeadless, which serially starts a replacement worker.
         /// </summary>
-        private const int MaxConsecutivePollFailures = 5;
-
-        static async Task MainAsync(string AccessKey, string CompanyName, string ConnectionId)
+        static async Task MainAsync(
+            string AccessKey,
+            string CompanyName,
+            string ConnectionId,
+            CancellationToken cancellationToken)
         {
-            bool sdkApprovalWasRequired = await WaitForSageAuthorizationAsync(CompanyName);
+            bool sdkApprovalWasRequired = await WaitForSageAuthorizationAsync(
+                CompanyName,
+                cancellationToken);
             if (sdkApprovalWasRequired
                 || !ComCredentialStore.IsAuthorizationConfirmed(CompanyGuid, CompanyName))
             {
@@ -587,7 +655,8 @@ namespace Sage50Connector
             int consecutivePollFailures = 0;
             while (true)
             {
-                bool comRetryRequested = System.Threading.Interlocked.Exchange(
+                cancellationToken.ThrowIfCancellationRequested();
+                bool comRetryRequested = Interlocked.Exchange(
                     ref comAuthorizationRetryRequested,
                     0) != 0;
 
@@ -596,10 +665,10 @@ namespace Sage50Connector
                 // the ordinary between-poll delay before honoring that request.
                 if (!firstIteration && !comRetryRequested)
                 {
-                    await DelayInterruptible(PollDelay);
+                    await DelayInterruptible(PollDelay, cancellationToken);
                     // Catch a Check access click that arrived after the first
                     // exchange but while the short poll delay was in progress.
-                    comRetryRequested = System.Threading.Interlocked.Exchange(
+                    comRetryRequested = Interlocked.Exchange(
                         ref comAuthorizationRetryRequested,
                         0) != 0;
                 }
@@ -627,7 +696,7 @@ namespace Sage50Connector
 
                 WriteToFile("###############################--------####################################################################################");
                 WriteToFile(DateTime.Now + ": Process Started");
-                ResponseObject job = await GetJobFromRutterAsync(AccessKey);
+                ResponseObject job = await GetJobFromRutterAsync(AccessKey, cancellationToken);
 
                 if (job != null)
                 {
@@ -683,7 +752,7 @@ namespace Sage50Connector
                             // Reopening costs a few seconds once every 5 minutes.
                             Helpers.Sage50Connector.Instance.Shutdown();
                             Helpers.SyncStatus.Instance.SetNothingRequested();
-                            await DelayInterruptible(TimeSpan.FromMinutes(5));
+                            await DelayInterruptible(TimeSpan.FromMinutes(5), cancellationToken);
                             break;
                         default:
                             // Must report, not just log. An unreported job stays
@@ -697,32 +766,30 @@ namespace Sage50Connector
                 else
                 {
                     consecutivePollFailures++;
-                    if (consecutivePollFailures >= MaxConsecutivePollFailures)
+                    if (consecutivePollFailures == 1)
                     {
-                        WriteToFile(
-                            DateTime.Now
-                                + ": Could not reach Rutter after "
-                                + consecutivePollFailures
-                                + " attempts. Exiting; the service will start us again."
-                        );
-                        break;
+                        // Do not occupy a limited Sage connection while Rutter or
+                        // the network is offline. The next job handler reconnects.
+                        Helpers.Sage50Connector.Instance.Shutdown();
                     }
 
-                    Helpers.SyncStatus.Instance.SetOffline("Cannot reach Rutter. Retrying…");
-
-                    // 2s, 4s, 8s, 16s.
-                    TimeSpan backoff = TimeSpan.FromSeconds(Math.Pow(2, consecutivePollFailures));
+                    TimeSpan backoff = CalculateRetryDelay(consecutivePollFailures);
+                    double retrySeconds = Math.Ceiling(backoff.TotalSeconds);
+                    Helpers.SyncStatus.Instance.SetOffline(
+                        "Cannot reach Rutter. Retry "
+                            + consecutivePollFailures
+                            + " in "
+                            + retrySeconds
+                            + " seconds…");
                     WriteToFile(
                         DateTime.Now
                             + ": Poll failed ("
                             + consecutivePollFailures
-                            + " of "
-                            + MaxConsecutivePollFailures
                             + "); retrying in "
-                            + backoff.TotalSeconds
+                            + retrySeconds
                             + "s."
                     );
-                    await Task.Delay(backoff);
+                    await DelayInterruptible(backoff, cancellationToken);
                 }
                 WriteToFile(DateTime.Now + ": Process Ended.");
                 WriteToFile("###################################################################################################################");
@@ -737,7 +804,8 @@ namespace Sage50Connector
         /// still wake this immediately, and the long fallback handles a missed
         /// or localized window title.
         /// </summary>
-        private static async Task WaitForSageApprovalDialogOrRetryAsync()
+        private static async Task WaitForSageApprovalDialogOrRetryAsync(
+            CancellationToken cancellationToken)
         {
             await Task.Run(() =>
             {
@@ -745,6 +813,7 @@ namespace Sage50Connector
                 DateTime retryAt = DateTime.UtcNow.Add(AuthorizationRetryDelay);
                 while (DateTime.UtcNow < retryAt)
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     bool dialogVisible = FindWindow(null, "Third Party Application Access") != IntPtr.Zero;
                     if (dialogVisible)
                     {
@@ -757,14 +826,16 @@ namespace Sage50Connector
                     }
 
                     var signal = SyncNowSignal;
-                    if (signal != null && signal.Wait(AuthorizationWindowPollDelay))
+                    if (signal != null
+                        && signal.Wait(AuthorizationWindowPollDelay, cancellationToken))
                     {
                         signal.Reset();
                         return;
                     }
                     if (signal == null)
                     {
-                        System.Threading.Thread.Sleep(AuthorizationWindowPollDelay);
+                        cancellationToken.WaitHandle.WaitOne(AuthorizationWindowPollDelay);
+                        cancellationToken.ThrowIfCancellationRequested();
                     }
                 }
             });
@@ -779,11 +850,14 @@ namespace Sage50Connector
         /// queued job. The Sage session is released after every probe so a denied
         /// build cannot cache stale authorization or occupy a licence seat.
         /// </summary>
-        private static async Task<bool> WaitForSageAuthorizationAsync(string companyName)
+        private static async Task<bool> WaitForSageAuthorizationAsync(
+            string companyName,
+            CancellationToken cancellationToken)
         {
             bool approvalWasRequired = false;
             while (true)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 Helpers.SyncStatus.Instance.SetCheckingAuthorization();
                 try
                 {
@@ -833,7 +907,7 @@ namespace Sage50Connector
                     Helpers.Sage50Connector.Instance.Shutdown();
                 }
 
-                await WaitForSageApprovalDialogOrRetryAsync();
+                await WaitForSageApprovalDialogOrRetryAsync(cancellationToken);
             }
         }
 
@@ -877,7 +951,9 @@ namespace Sage50Connector
             }
         }
 
-        private static async Task<ResponseObject> GetJobFromRutterAsync(string AccessKey)
+        private static async Task<ResponseObject> GetJobFromRutterAsync(
+            string AccessKey,
+            CancellationToken cancellationToken)
         {
             using (HttpClient client = new HttpClient())
             {
@@ -900,7 +976,26 @@ namespace Sage50Connector
                 };
 
                 request.Content = new StringContent(JsonConvert.SerializeObject(requestBody), Encoding.UTF8, "application/json");
-                var response = await client.SendAsync(request);
+                HttpResponseMessage response;
+                try
+                {
+                    response = await client.SendAsync(request, cancellationToken);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (HttpRequestException ex)
+                {
+                    WriteToFile(DateTime.Now + ": Could not reach Rutter: " + ex.Message);
+                    return null;
+                }
+                catch (TaskCanceledException ex)
+                {
+                    // HttpClient reports request timeouts as TaskCanceledException.
+                    WriteToFile(DateTime.Now + ": Rutter poll timed out: " + ex.Message);
+                    return null;
+                }
 
                 if (response.IsSuccessStatusCode)
                 {
@@ -931,6 +1026,17 @@ namespace Sage50Connector
                 List<object> allRecords;
                 if (!JobFetchCache.TryGet(job.job_id, job.platform_entity, out allRecords))
                 {
+                    // A cursor means Rutter already accepted at least one page.
+                    // If this process has no matching in-memory snapshot, it
+                    // restarted mid-job. Never continue that old cursor against
+                    // a newly loaded live Sage list: ask Rutter to reset this job
+                    // to page one first.
+                    if (!string.IsNullOrEmpty(job.parameters?.cursor))
+                    {
+                        await RequestListFetchRestartAsync(job, AccessKey);
+                        return;
+                    }
+
                     allRecords = GetEntityData(
                         job.platform_entity,
                         CompanyName,
@@ -943,8 +1049,6 @@ namespace Sage50Connector
                         .OrderBy(record => GetRecordId(record), StringComparer.Ordinal)
                         .ToList();
                     JobFetchCache.Put(job.job_id, job.platform_entity, allRecords);
-                    var ids = allRecords.Select(GetRecordId).Where(id => !string.IsNullOrEmpty(id)).ToList();
-                    JobIdListCache.Put(job.job_id, job.platform_entity, ids);
                 }
 
                 int offset;
@@ -1005,7 +1109,6 @@ namespace Sage50Connector
                 {
                     Helpers.SyncStatus.Instance.SetEntitySynced(job.platform_entity, allRecords.Count);
                     JobFetchCache.Remove(job.job_id, job.platform_entity);
-                    JobIdListCache.Remove(job.job_id, job.platform_entity);
                 }
             }
             catch (Exception ex)
@@ -1045,6 +1148,39 @@ namespace Sage50Connector
 
                 await PostToRutterAsync(jsonString, AccessKey);
             }
+        }
+
+        private static async Task RequestListFetchRestartAsync(
+            ResponseObject job,
+            string accessKey)
+        {
+            const string reason =
+                "Connector restarted during a paged fetch; restart this job from page one.";
+            WriteToFile(
+                DateTime.Now
+                    + ": Lost the in-memory snapshot for paged "
+                    + job.platform_entity
+                    + " job "
+                    + job.job_id
+                    + "; requesting a restart from page one.");
+            Helpers.SyncStatus.Instance.SetIdle(
+                "Connector restarted during "
+                    + Helpers.SyncStatus.Friendly(job.platform_entity)
+                    + ". Restarting that sync from the beginning…");
+
+            // error_message makes this fail safely against an older backend
+            // that does not understand restart_from_beginning. New backends
+            // recognize the explicit flag before generic error handling.
+            await PostToRutterAsync(Serialize(new
+            {
+                connection = new { id = ConnectionId },
+                job_id = job.job_id,
+                type = job.type,
+                platform_entity = job.platform_entity,
+                parameters = job.parameters,
+                restart_from_beginning = true,
+                error_message = reason,
+            }), accessKey);
         }
 
         /// <summary>

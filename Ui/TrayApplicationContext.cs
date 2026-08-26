@@ -22,6 +22,7 @@ namespace Sage50Connector.Ui
         private bool authBalloonShown;
         private bool updateBalloonShown;
         private readonly ManualResetEventSlim syncNowSignal = new ManualResetEventSlim(false);
+        private readonly CancellationTokenSource syncCancellation = new CancellationTokenSource();
         private string apiBaseUrlForUpdates = ConnectorConfig.DefaultApiBaseUrl;
 
         public TrayApplicationContext()
@@ -62,7 +63,8 @@ namespace Sage50Connector.Ui
             statusForm.UpdateRequested += async (s, e) => await CheckForUpdatesInteractiveAsync();
 
             // The sync loop owns a Sage session, so keep it off the UI thread.
-            Task.Run(() => Program.RunSyncLoopHeadless(syncNowSignal));
+            Task.Run(
+                () => Program.RunSyncLoopHeadless(syncNowSignal, syncCancellation.Token));
 
             // Windows hides new tray icons behind the overflow chevron, so a
             // customer who just installed this sees nothing at all. Show the
@@ -368,6 +370,8 @@ namespace Sage50Connector.Ui
         private void ExitConnector()
         {
             trayIcon.Visible = false;
+            syncCancellation.Cancel();
+            syncNowSignal.Set();
             Program.ReleaseSageSession();
             ExitThread();
         }

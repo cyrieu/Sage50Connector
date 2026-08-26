@@ -110,9 +110,11 @@ customer-facing name and log `RuntimeMode=Installed`. The process name remains
 
 Sage 50 does **not** need to be open — see "Sage 50 does not need to be running".
 
-The tray executable polls for jobs and exits after
-`MaxConsecutivePollFailures` failed polls. Installed copies are registered under
-the machine-wide `Run` key and start in the logged-on user's interactive session.
+The tray executable polls indefinitely. During a Rutter or network outage it
+releases its Sage session and retries with capped exponential backoff and jitter;
+an unexpected sync-worker fault is also restarted in-process. Installed copies
+are registered under the machine-wide `Run` key and start in the logged-on
+user's interactive session.
 
 ### Azure CLI details
 
@@ -452,6 +454,13 @@ The connector reports a result by POSTing back to the same endpoint with
 A job the connector cannot service **must still be reported** with an
 `error_message`. Rutter re-serves an in-progress job on every poll, so a job
 that is only logged and skipped is handed back forever.
+
+The page snapshot is intentionally in memory only. If the connector process
+restarts while a `LIST_FETCH` cursor is in progress, it reports
+`restart_from_beginning: true` instead of loading a second live Sage snapshot
+under the old cursor. Rutter resets that job to page one; unchanged replayed
+rows are content-hash deduplicated. After three such resets the job fails rather
+than allowing a crash loop to restart it forever.
 
 Verified end to end against Bellwether on 2026-08-03, one vendor through its
 whole lifecycle: `CREATE` wrote it, `ID_FETCH` read it back, `UPDATE` renamed

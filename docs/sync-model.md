@@ -59,12 +59,15 @@ still round-robin *within* a stage (cursor saves bump `updatedAt`).
 
 ## Connector paging / caches
 
-Under `%ProgramData%\Rutter\Sage50Connector\cache\`:
+`JobFetchCache` holds the full filtered list for each open `job_id` in-process,
+so a multi-page job performs one Sage `Load()` rather than one per page. The
+connector deliberately does not persist accounting payloads to disk.
 
-| Cache | Purpose |
-|---|---|
-| `JobFetchCache` (in-process) | Full filtered list for an open `job_id` — one Sage `Load()` per job, not per page |
-| `{jobId}/{entity}.ids` | Disk id list for restart resilience / progress |
+If the process restarts after Rutter has saved a page cursor, the connector no
+longer mixes that cursor with a newly loaded live Sage list. It reports
+`restart_from_beginning: true`; Rutter abandons the old refresh-run attempt,
+clears the job's cursor and page counters, and serves the same bounded job again
+from page one. Unchanged rows already received are content-hash deduplicated.
 
 The connector always reports every row in the page. Unchanged-row dedupe is left
 to the server upsert (content hash / `platform_id` match). No client-side hash
