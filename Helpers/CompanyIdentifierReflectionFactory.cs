@@ -30,7 +30,7 @@ namespace Sage50Connector.Helpers
             get { return Ctor != null; }
         }
 
-        public static CompanyIdentifier Build(string databaseName, string companyPath, string companyName, string serverName)
+        public static CompanyIdentifier Build(Guid companyGuid, string databaseName, string companyPath, string companyName, string serverName)
         {
             if (Ctor == null)
             {
@@ -40,7 +40,7 @@ namespace Sage50Connector.Helpers
 
             return (CompanyIdentifier)Ctor.Invoke(new object[]
             {
-                Guid.Empty, databaseName, companyPath, companyName, serverName,
+                companyGuid, databaseName, companyPath, companyName, serverName,
             });
         }
     }

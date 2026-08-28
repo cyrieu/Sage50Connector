@@ -1,10 +1,13 @@
 ﻿
 using System;
 using System.Collections.Generic;
+using System.Data.Common;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
+using Microsoft.Win32.SafeHandles;
 using Sage.Peachtree.API;
 
 namespace Sage50Connector.Helpers
@@ -83,13 +86,14 @@ namespace Sage50Connector.Helpers
         /// company data folder because it never showed up (or Sage 50's company
         /// catalog is broken and CompanyList()/CompanyListForServer both failed).
         ///
-        /// Tries the folder's leaf name as a guess at Sage's internal database
-        /// name via the supported LookupCompanyIdentifier() call first — cheap,
-        /// safe, and returns Sage's own validated identity when the guess is
-        /// right. Only if that fails does it fall back to constructing a
-        /// CompanyIdentifier directly (unsupported — see
-        /// CompanyIdentifierReflectionFactory) and validating it with a bounded
-        /// RequestAccess call.
+        /// First matches the selected path against CompanyList() when enumeration
+        /// is available. If it is not, CrystalReports.udl inside every tested Sage
+        /// company folder supplies the real PSQL Data Source/database name. Sage
+        /// does not require that name to equal the folder leaf (for example,
+        /// rutoddlo can contain database rutteroddlocationtes), so the leaf is
+        /// only a final compatibility guess. Only if supported lookup cannot
+        /// return an identifier for the selected physical directory does this
+        /// fall back to the unsupported reflection factory.
         /// </summary>
         /// <summary>
         /// Resolves one company directly by its Sage-internal database name via
@@ -106,21 +110,87 @@ namespace Sage50Connector.Helpers
 
         public CompanyIdentifier ResolveFolder(string folderPath)
         {
-            string guessedName = new DirectoryInfo(folderPath.TrimEnd('\\', '/')).Name;
-            string serverName = Environment.MachineName;
+            if (string.IsNullOrWhiteSpace(folderPath) || !Directory.Exists(folderPath))
+            {
+                throw new DirectoryNotFoundException("The selected Sage 50 company folder does not exist.");
+            }
 
+            folderPath = Path.GetFullPath(folderPath.TrimEnd('\\', '/'));
+            string leafName = new DirectoryInfo(folderPath).Name;
+            string serverName = Environment.MachineName;
+            CompanyIdentifier lookupMetadata = null;
+
+            // This is the most authoritative path when CompanyList works: Sage
+            // supplied both the identifier and the directory. Resolve junctions
+            // before comparing so a company physically stored outside the normal
+            // root still matches a Sage-visible junction.
             try
             {
-                CompanyIdentifier identifier = ResolveByDatabaseName(guessedName);
-                if (identifier != null)
+                CompanyIdentifier pathMatch = ListCompanies().FirstOrDefault(
+                    identifier => PathsReferToSameDirectory(folderPath, identifier.Path));
+                if (pathMatch != null)
                 {
-                    global::Sage50Connector.Program.WriteToFile("Folder '" + folderPath + "' resolved to Sage 50 company '" + identifier.CompanyName + "' via LookupCompanyIdentifier.");
-                    return identifier;
+                    global::Sage50Connector.Program.WriteToFile(
+                        "Folder '" + folderPath + "' resolved to Sage 50 company '"
+                        + pathMatch.CompanyName + "' by matching Sage's company-list path.");
+                    return pathMatch;
                 }
             }
             catch (Exception ex)
             {
-                global::Sage50Connector.Program.WriteToFile("LookupCompanyIdentifier could not resolve folder '" + folderPath + "' (guessed database name '" + guessedName + "'): " + ex.GetType().Name + ": " + ex.Message);
+                // ListCompanies already logs both SDK enumeration failures. The
+                // folder fallback exists specifically so those failures are not
+                // fatal, so continue with metadata local to the selected folder.
+                global::Sage50Connector.Program.WriteToFile(
+                    "Could not match folder '" + folderPath
+                    + "' through Sage's company list; continuing with folder metadata: "
+                    + ex.GetType().Name + ": " + ex.Message);
+            }
+
+            var databaseNames = new List<string>();
+            string udlDatabaseName = ReadDatabaseNameFromFolder(folderPath);
+            if (!string.IsNullOrWhiteSpace(udlDatabaseName))
+            {
+                databaseNames.Add(udlDatabaseName);
+                global::Sage50Connector.Program.WriteToFile(
+                    "Folder '" + folderPath + "' declares Sage database name '"
+                    + udlDatabaseName + "' in CrystalReports.udl.");
+            }
+            if (!databaseNames.Contains(leafName, StringComparer.OrdinalIgnoreCase))
+            {
+                databaseNames.Add(leafName);
+            }
+
+            foreach (string databaseName in databaseNames)
+            {
+                try
+                {
+                    CompanyIdentifier identifier = ResolveByDatabaseName(databaseName);
+                    if (identifier == null) continue;
+
+                    lookupMetadata = identifier;
+                    if (PathsReferToSameDirectory(folderPath, identifier.Path))
+                    {
+                        global::Sage50Connector.Program.WriteToFile(
+                            "Folder '" + folderPath + "' resolved to Sage 50 company '"
+                            + identifier.CompanyName + "' via LookupCompanyIdentifier using database name '"
+                            + databaseName + "'.");
+                        return identifier;
+                    }
+
+                    global::Sage50Connector.Program.WriteToFile(
+                        "LookupCompanyIdentifier resolved database '" + databaseName
+                        + "', but Sage reports path '" + identifier.Path
+                        + "' instead of the selected folder '" + folderPath
+                        + "'; validating the selected folder directly.");
+                }
+                catch (Exception ex)
+                {
+                    global::Sage50Connector.Program.WriteToFile(
+                        "LookupCompanyIdentifier could not resolve folder '" + folderPath
+                        + "' using database name '" + databaseName + "': "
+                        + ex.GetType().Name + ": " + ex.Message);
+                }
             }
 
             if (!CompanyIdentifierReflectionFactory.IsAvailable)
@@ -128,8 +198,15 @@ namespace Sage50Connector.Helpers
                 throw new InvalidOperationException("Rutter could not identify a Sage 50 company at that folder.");
             }
 
-            global::Sage50Connector.Program.WriteToFile("Falling back to direct company-identifier construction for folder '" + folderPath + "' (unsupported Sage SDK path; guessed database name '" + guessedName + "').");
-            CompanyIdentifier manual = CompanyIdentifierReflectionFactory.Build(guessedName, folderPath, guessedName, serverName);
+            string selectedDatabaseName = databaseNames.First();
+            Guid companyGuid = lookupMetadata == null ? Guid.Empty : lookupMetadata.Guid;
+            string companyName = lookupMetadata == null ? selectedDatabaseName : lookupMetadata.CompanyName;
+            string resolvedServerName = lookupMetadata == null ? serverName : lookupMetadata.ServerName;
+            global::Sage50Connector.Program.WriteToFile(
+                "Falling back to direct company-identifier construction for folder '" + folderPath
+                + "' (unsupported Sage SDK path; database name '" + selectedDatabaseName + "').");
+            CompanyIdentifier manual = CompanyIdentifierReflectionFactory.Build(
+                companyGuid, selectedDatabaseName, folderPath, companyName, resolvedServerName);
 
             // ponytail: bounded to 20s. companyPath always comes from a folder the
             // user just browsed to, so it exists — the one combination seen to
@@ -158,6 +235,91 @@ namespace Sage50Connector.Helpers
             global::Sage50Connector.Program.WriteToFile("Direct construction validation for '" + folderPath + "': " + validation);
             return manual;
         }
+
+        private static string ReadDatabaseNameFromFolder(string folderPath)
+        {
+            string udlPath = Path.Combine(folderPath, "CrystalReports.udl");
+            if (!File.Exists(udlPath)) return null;
+
+            try
+            {
+                string connectionString = string.Join(
+                    string.Empty,
+                    File.ReadAllLines(udlPath)
+                        .Select(line => line.Trim())
+                        .Where(line => line.Length > 0 && !line.StartsWith("[") && !line.StartsWith(";")));
+                var builder = new DbConnectionStringBuilder { ConnectionString = connectionString };
+                object value;
+                if (builder.TryGetValue("Data Source", out value))
+                {
+                    return Convert.ToString(value).Trim();
+                }
+            }
+            catch (Exception ex)
+            {
+                global::Sage50Connector.Program.WriteToFile(
+                    "Could not read Sage database metadata from '" + udlPath + "': "
+                    + ex.GetType().Name + ": " + ex.Message);
+            }
+
+            return null;
+        }
+
+        private static bool PathsReferToSameDirectory(string first, string second)
+        {
+            if (string.IsNullOrWhiteSpace(first) || string.IsNullOrWhiteSpace(second)) return false;
+            return string.Equals(
+                NormalizeDirectoryPath(first),
+                NormalizeDirectoryPath(second),
+                StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string NormalizeDirectoryPath(string path)
+        {
+            string fullPath = Path.GetFullPath(path.TrimEnd('\\', '/'));
+            using (SafeFileHandle handle = CreateFile(
+                fullPath,
+                0,
+                FileShare.Read | FileShare.Write | FileShare.Delete,
+                IntPtr.Zero,
+                3,
+                0x02000000,
+                IntPtr.Zero))
+            {
+                if (!handle.IsInvalid)
+                {
+                    var target = new StringBuilder(1024);
+                    uint length = GetFinalPathNameByHandle(handle, target, (uint)target.Capacity, 0);
+                    if (length > 0 && length < target.Capacity)
+                    {
+                        string resolved = target.ToString();
+                        if (resolved.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase))
+                            resolved = @"\\" + resolved.Substring(8);
+                        else if (resolved.StartsWith(@"\\?\", StringComparison.OrdinalIgnoreCase))
+                            resolved = resolved.Substring(4);
+                        return resolved.TrimEnd('\\', '/');
+                    }
+                }
+            }
+            return fullPath;
+        }
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern SafeFileHandle CreateFile(
+            string fileName,
+            uint desiredAccess,
+            FileShare shareMode,
+            IntPtr securityAttributes,
+            uint creationDisposition,
+            uint flagsAndAttributes,
+            IntPtr templateFile);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern uint GetFinalPathNameByHandle(
+            SafeFileHandle file,
+            StringBuilder filePath,
+            uint filePathLength,
+            uint flags);
 
         public string OpenCompany(CompanyIdentifier comp)
         {

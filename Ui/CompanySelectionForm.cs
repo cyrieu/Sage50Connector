@@ -122,11 +122,14 @@ namespace Sage50Connector.Ui
 
         private async Task BrowseForCompanyFolderAsync()
         {
-            string defaultRoot = @"C:\Sage\Peachtree\Company";
             using (var dialog = new FolderBrowserDialog
             {
                 Description = "Select the Sage 50 company's data folder",
-                SelectedPath = Directory.Exists(defaultRoot) ? defaultRoot : string.Empty,
+                // Supplying SelectedPath to the legacy WinForms picker makes
+                // that directory its effective navigation root on current
+                // Windows. Start at This PC instead so local, mapped-drive and
+                // other nonstandard company locations are reachable.
+                RootFolder = Environment.SpecialFolder.MyComputer,
             })
             {
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
