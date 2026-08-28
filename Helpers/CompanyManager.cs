@@ -193,6 +193,23 @@ namespace Sage50Connector.Helpers
                 }
             }
 
+            if (lookupMetadata != null)
+            {
+                // A copied folder can contain a perfectly valid UDL for a
+                // database that is still registered somewhere else. The SDK's
+                // private CompanyIdentifier constructor does not override that
+                // registration: RequestAccess follows the registered database
+                // and can appear to validate the wrong copy. Never report that
+                // as success. A moved company must first be opened/registered in
+                // Sage (or exposed through a junction whose physical target is
+                // this directory), after which the canonical paths match above.
+                throw new InvalidOperationException(
+                    "That folder contains Sage database '" + lookupMetadata.DatabaseName
+                    + "', but Sage 50 has it registered at '" + lookupMetadata.Path
+                    + "'. Open the company from its new location in Sage 50, then try again."
+                );
+            }
+
             if (!CompanyIdentifierReflectionFactory.IsAvailable)
             {
                 throw new InvalidOperationException("Rutter could not identify a Sage 50 company at that folder.");
