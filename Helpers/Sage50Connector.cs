@@ -135,6 +135,26 @@ namespace Sage50Connector.Helpers
                 return PeachtreeSession.CompanyList();
             }
         }
+
+        /// <summary>
+        /// The SDK's per-server overload of CompanyList(). A distinct native call
+        /// path from the parameterless overload above; tried as a second
+        /// enumeration attempt when the first fails.
+        /// </summary>
+        public CompanyIdentifierList CompanyListForServer(string serverName)
+        {
+            return PeachtreeSession.CompanyList(serverName);
+        }
+
+        /// <summary>
+        /// Resolves one company directly by its Sage-internal database name,
+        /// without enumerating every registered company. serverName cannot be
+        /// empty — Sage rejects that with an ArgumentException.
+        /// </summary>
+        public CompanyIdentifier LookupCompanyIdentifier(string serverName, string databaseName)
+        {
+            return PeachtreeSession.LookupCompanyIdentifier(serverName, databaseName);
+        }
         #endregion
 
         #region methods

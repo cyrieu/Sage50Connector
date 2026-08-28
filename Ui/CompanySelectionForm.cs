@@ -4,6 +4,7 @@ using Sage.Peachtree.API;
 using Sage50Connector.Helpers;
 using System;
 using System.Drawing;
+using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Text;
@@ -25,6 +26,7 @@ namespace Sage50Connector.Ui
         private readonly ComboBox companies = new ComboBox();
         private readonly Label detail = new Label();
         private readonly Label error = new Label();
+        private readonly LinkLabel browseLink = new LinkLabel();
         private readonly Button connect = new Button();
 
         public CompanySelectionForm(string setupToken, string apiBaseUrl)
@@ -33,7 +35,7 @@ namespace Sage50Connector.Ui
             this.apiBaseUrl = apiBaseUrl.TrimEnd('/');
 
             Text = "Connect Rutter to Sage 50";
-            ClientSize = new Size(520, 250);
+            ClientSize = new Size(520, 290);
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
             MinimizeBox = false;
@@ -61,20 +63,24 @@ namespace Sage50Connector.Ui
             detail.SetBounds(18, 120, 480, 34);
             detail.ForeColor = SystemColors.GrayText;
 
-            error.SetBounds(18, 158, 480, 34);
+            error.SetBounds(18, 158, 480, 50);
             error.ForeColor = Color.FromArgb(153, 27, 27);
 
+            browseLink.Text = "Can't find your company? Browse for its folder…";
+            browseLink.SetBounds(18, 212, 340, 20);
+            browseLink.LinkClicked += async (s, e) => await BrowseForCompanyFolderAsync();
+
             connect.Text = "Connect company";
-            connect.SetBounds(366, 208, 132, 28);
+            connect.SetBounds(366, 248, 132, 28);
             connect.Enabled = false;
             connect.Click += async (s, e) => await CompleteSetupAsync();
 
             var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel };
-            cancel.SetBounds(276, 208, 82, 28);
+            cancel.SetBounds(276, 248, 82, 28);
 
             Controls.AddRange(new Control[]
             {
-                heading, explanation, companies, detail, error, connect, cancel,
+                heading, explanation, companies, detail, error, browseLink, connect, cancel,
             });
             AcceptButton = connect;
             CancelButton = cancel;
@@ -92,7 +98,8 @@ namespace Sage50Connector.Ui
                 companies.Items.AddRange(available);
                 if (available.Length == 0)
                 {
-                    error.Text = "No Sage 50 companies were found for this Windows user.";
+                    error.Text = "No Sage 50 companies were found for this Windows user. "
+                        + "Use \"Browse for its folder\" below instead.";
                     return;
                 }
                 companies.SelectedIndex = 0;
@@ -103,13 +110,52 @@ namespace Sage50Connector.Ui
             }
             catch (Exception ex)
             {
-                error.Text = "Rutter could not read the Sage 50 company list: " + ex.Message;
+                error.Text = "Rutter could not read the Sage 50 company list: " + ex.Message
+                    + " Use \"Browse for its folder\" below instead.";
             }
         }
 
         private CompanyChoice SelectedCompany
         {
             get { return companies.SelectedItem as CompanyChoice; }
+        }
+
+        private async Task BrowseForCompanyFolderAsync()
+        {
+            string defaultRoot = @"C:\Sage\Peachtree\Company";
+            using (var dialog = new FolderBrowserDialog
+            {
+                Description = "Select the Sage 50 company's data folder",
+                SelectedPath = Directory.Exists(defaultRoot) ? defaultRoot : string.Empty,
+            })
+            {
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+
+                browseLink.Enabled = false;
+                companies.Enabled = false;
+                connect.Enabled = false;
+                error.Text = string.Empty;
+                detail.Text = "Checking Sage 50 access for that folder… this can take up to 20 seconds.";
+
+                try
+                {
+                    string folderPath = dialog.SelectedPath;
+                    CompanyIdentifier identifier = await Task.Run(() => CompanyManager.Instance.ResolveFolder(folderPath));
+                    companies.Items.Clear();
+                    companies.Items.Add(new CompanyChoice(identifier));
+                    companies.SelectedIndex = 0;
+                }
+                catch (Exception ex)
+                {
+                    detail.Text = string.Empty;
+                    error.Text = ex.Message;
+                }
+                finally
+                {
+                    browseLink.Enabled = true;
+                    companies.Enabled = true;
+                }
+            }
         }
 
         private void RenderSelection()
@@ -169,7 +215,8 @@ namespace Sage50Connector.Ui
                         config.Value<string>("AccessKey"),
                         config.Value<string>("ConnectionId"),
                         apiBaseUrl,
-                        config.Value<string>("CompanyGuid"));
+                        config.Value<string>("CompanyGuid"),
+                        config.Value<string>("DatabaseName"));
                     credentialEnvelope.DecryptAndSave(
                         body.Value<string>("com_credential_encrypted"));
                     DialogResult = DialogResult.OK;

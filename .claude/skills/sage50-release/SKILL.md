@@ -6,7 +6,7 @@ description: Build, Authenticode-sign, package, and verify a customer-ready Sage
 # Release the Sage 50 Connector
 
 Produce one immutable signed EXE and MSI from the pushed tip of
-`rutter/productionize-v1`, then publish them for **Link first install** and
+`master`, then publish them for **Link first install** and
 **in-app assisted auto-update**. Build and package on the Windows VM; sign and
 publish on the Mac. Azure credentials never need to be stored on the VM.
 
@@ -29,7 +29,7 @@ Confirm all of the following:
   three-part `Sage50ConnectorMsiVersion` for WiX). The release script refuses
   to run if they disagree.
 - The working tree is clean and the intended commit is pushed to
-  `origin/rutter/productionize-v1`.
+  `origin/master`.
 - Lab SSH env is set and works: `SAGE50_SSH_HOST`, `SAGE50_SSH_USER`,
   `SAGE50_SSH_KEY`. If SSH times out, the VM may be deallocated — start it
   first with `az vm start` using `SAGE50_VM_RG` / `SAGE50_VM_NAME` /
@@ -81,7 +81,7 @@ export SAGE50_RELEASE_NOTES='Bug fixes and improved setup.'
 
 That script **always Authenticode-signs both artifacts** (this is not EXE-only):
 
-1. Verifies version files, clean tree, and `origin/rutter/productionize-v1`.
+1. Verifies version files, clean tree, and `origin/master`.
 2. Stops the connector on the VM and builds Release x86 artifacts.
 3. Copies the unsigned EXE to the Mac and signs with Azure Artifact Signing.
 4. Returns the signed EXE and packages the MSI (signed EXE embedded).

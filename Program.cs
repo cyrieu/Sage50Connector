@@ -103,6 +103,7 @@ namespace Sage50Connector
     {
         public static string CompanyName;
         public static string CompanyGuid;
+        public static string DatabaseName;
         public static string AccessKey;
         public static string ConnectionId;
 
@@ -217,6 +218,7 @@ namespace Sage50Connector
                 Config = ConnectorConfig.Load();
                 CompanyName = Config.CompanyName;
                 CompanyGuid = Config.CompanyGuid;
+                DatabaseName = Config.DatabaseName;
                 AccessKey = Config.AccessKey;
                 ConnectionId = Config.ConnectionId;
             }

@@ -17,6 +17,13 @@ namespace Sage50Connector.Helpers
     /// Shape:
     /// {
     ///   "CompanyName": "<Sage 50 company name>",
+    ///   "CompanyGuid": "<Sage 50 company GUID>",            // optional
+    ///   "DatabaseName": "<Sage-internal database name>",    // optional; lets
+    ///                                                        // OpenCompany resolve
+    ///                                                        // directly via
+    ///                                                        // LookupCompanyIdentifier
+    ///                                                        // instead of a full
+    ///                                                        // CompanyList() enumeration
     ///   "AccessKey":   "<credential inbound access token (iat_...)>",
     ///   "ConnectionId": "<Rutter item id>",
     ///   "ApiBaseUrl":  "https://production.rutterapi.com"   // optional; defaults to prod
@@ -42,6 +49,7 @@ namespace Sage50Connector.Helpers
 
         public string CompanyName { get; private set; }
         public string CompanyGuid { get; private set; }
+        public string DatabaseName { get; private set; }
         public string AccessKey { get; private set; }
         public string ConnectionId { get; private set; }
         public string ApiBaseUrl { get; private set; }
@@ -102,6 +110,7 @@ namespace Sage50Connector.Helpers
             {
                 CompanyName = GetRequiredValue(json, "CompanyName"),
                 CompanyGuid = json.Value<string>("CompanyGuid"),
+                DatabaseName = json.Value<string>("DatabaseName"),
                 AccessKey = GetRequiredValue(json, "AccessKey"),
                 ConnectionId = GetRequiredValue(json, "ConnectionId"),
                 ApiBaseUrl = json.Value<string>("ApiBaseUrl") ?? DefaultApiBaseUrl,
@@ -118,13 +127,15 @@ namespace Sage50Connector.Helpers
             string accessKey,
             string connectionId,
             string apiBaseUrl,
-            string companyGuid = null)
+            string companyGuid = null,
+            string databaseName = null)
         {
             Directory.CreateDirectory(ConfigDirectory);
             var config = new ConnectorConfig
             {
                 CompanyName = companyName,
                 CompanyGuid = companyGuid,
+                DatabaseName = databaseName,
                 AccessKey = accessKey,
                 ConnectionId = connectionId,
                 ApiBaseUrl = string.IsNullOrWhiteSpace(apiBaseUrl) ? DefaultApiBaseUrl : apiBaseUrl,
@@ -140,6 +151,10 @@ namespace Sage50Connector.Helpers
             if (!string.IsNullOrWhiteSpace(config.CompanyGuid))
             {
                 json["CompanyGuid"] = config.CompanyGuid;
+            }
+            if (!string.IsNullOrWhiteSpace(config.DatabaseName))
+            {
+                json["DatabaseName"] = config.DatabaseName;
             }
             if (!string.Equals(config.ApiBaseUrl, DefaultApiBaseUrl, StringComparison.OrdinalIgnoreCase))
             {

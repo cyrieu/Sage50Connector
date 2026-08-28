@@ -9,6 +9,19 @@ Rutter never connects inbound; the connector always dials out.
 end-to-end data-flow diagram, and the server-side gotchas. Read it alongside
 this file; this one covers the Windows and Sage half.
 
+Sage's own KB lists seven third-party apps it officially supports integrating
+with **Sage 50 Cloud — the hosted version** (AutoEntry, Avalara AvaTax, Fortis,
+Paya, Sage AP Automation / Quadient, Vericlock, XLGL) —
+[Sage KB 250820164946590](https://us-kb.sage.com/portal/app/portlets/results/viewsolution.jsp?solutionid=250820164946590).
+Rutter is not on that list; new integrations get added only after Sage support
+opens a product-team request.
+
+That restriction is specific to Sage's **hosted** offering. This connector
+targets the **local install** of Sage 50 — it talks to the Peachtree SDK/COM
+on the customer's own Windows machine, not through Sage's hosted partner
+program — so the KB list does not gate it. It only matters if a customer or
+Sage rep asks about integration status and is thinking of the hosted product.
+
 ## What runs where
 
 - Develop and commit C# changes on macOS if preferred.
@@ -57,8 +70,8 @@ incorrect format". Write the real script to disk and re-run it with
 ## Build and run on the VM
 
 Build remotely from macOS with the Visual Studio Build Tools installed on the
-VM. The VM builds `origin/rutter/productionize-v1`, so commit and push the code
-you want to test first. Then run:
+VM. The VM builds `origin/master`, so commit and push the code you want to
+test first. Then run:
 
 ```bash
 .claude/skills/sage50-iterate/scripts/vmrun.sh \
@@ -66,7 +79,7 @@ you want to test first. Then run:
 ```
 
 `build.ps1` stops any existing connector, fetches and resets the VM checkout to
-`origin/rutter/productionize-v1`, restores NuGet packages, and rebuilds the
+`origin/master`, restores NuGet packages, and rebuilds the
 solution in `Release` using:
 
 ```text

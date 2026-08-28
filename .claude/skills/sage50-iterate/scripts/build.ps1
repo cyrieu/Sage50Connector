@@ -1,4 +1,4 @@
-# Pull rutter/productionize-v1 on the VM and rebuild Release.
+# Pull master on the VM and rebuild Release.
 #
 # Stops the connector first: a running instance holds a lock on
 # bin\Release\Sage50Connector.exe and the build fails with MSB3027.
@@ -11,7 +11,7 @@ $nuget = 'C:\BuildTools\nuget.exe'
 Set-Location 'C:\src\Sage50Connector'
 
 & $git fetch origin 2>&1 | Out-Null
-& $git reset --hard origin/rutter/productionize-v1 2>&1 | Out-Null
+& $git reset --hard origin/master 2>&1 | Out-Null
 Write-Output ('HEAD: ' + (& $git rev-parse --short HEAD) + '  ' + (& $git log -1 --pretty=%s))
 
 & $nuget restore Sage50Connector.sln -NonInteractive 2>&1 | Out-Null

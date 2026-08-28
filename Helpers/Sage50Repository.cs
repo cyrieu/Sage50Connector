@@ -50,6 +50,31 @@ namespace Sage50Connector.Helpers
         }
         public string OpenCompany(string compName)
         {
+            // A known database name resolves directly via LookupCompanyIdentifier
+            // and does not need a full CompanyList() enumeration at all — this is
+            // what keeps a reconnect working even when Sage 50's company catalog
+            // enumeration is broken on this machine. Falls through to the
+            // enumeration-based match below on any failure (older configs saved
+            // before DatabaseName was captured have none to try).
+            if (!string.IsNullOrWhiteSpace(Program.DatabaseName))
+            {
+                try
+                {
+                    var identifier = m_compManager.ResolveByDatabaseName(Program.DatabaseName);
+                    if (identifier != null)
+                    {
+                        return m_compManager.OpenCompany(identifier);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    global::Sage50Connector.Program.WriteToFile(
+                        "Direct lookup by saved database name '" + Program.DatabaseName
+                            + "' failed, falling back to full company enumeration: "
+                            + ex.GetType().Name + ": " + ex.Message);
+                }
+            }
+
             var companyIdentifiers = m_compManager.Companies;
             int index = companyIdentifiers.FindIndex(company =>
                 (!string.IsNullOrWhiteSpace(Program.CompanyGuid)

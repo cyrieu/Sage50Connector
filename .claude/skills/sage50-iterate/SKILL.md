@@ -46,11 +46,10 @@ Check the VM end with:
 
 ### 1. Push the change
 
-The VM builds from `origin/rutter/productionize-v1`; it does not see your
-working tree.
+The VM builds from `origin/master`; it does not see your working tree.
 
 ```bash
-git add -A && git commit -m "..." && git push origin rutter/productionize-v1
+git add -A && git commit -m "..." && git push origin master
 ```
 
 ### 2. Rebuild on the VM

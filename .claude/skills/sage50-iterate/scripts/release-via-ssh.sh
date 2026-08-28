@@ -52,9 +52,9 @@ done
   exit 1
 }
 expected_head=$(git -C "$repo_root" rev-parse HEAD)
-expected_remote_head=$(git -C "$repo_root" rev-parse origin/rutter/productionize-v1)
+expected_remote_head=$(git -C "$repo_root" rev-parse origin/master)
 [ "$expected_head" = "$expected_remote_head" ] || {
-  echo 'HEAD does not match origin/rutter/productionize-v1; push the intended release first' >&2
+  echo 'HEAD does not match origin/master; push the intended release first' >&2
   exit 1
 }
 expected_short=$(git -C "$repo_root" rev-parse --short HEAD)
