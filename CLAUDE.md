@@ -25,6 +25,12 @@ Sage rep asks about integration status and is thinking of the hosted product.
 ## What runs where
 
 - Develop and commit C# changes on macOS if preferred.
+- Repository boundary: direct pushes to `master` are allowed in this
+  `Sage50Connector` repo. **Never push directly to `main` (or another
+  protected/default branch) in the sibling `rutter-backend` repo.** Keep
+  backend changes local or use a non-default feature branch for review/PR,
+  unless the user explicitly authorizes that exact direct push in the current
+  request.
 - Build and run the connector on the Windows VM: it requires Sage 50 and the Sage Peachtree SDK.
 - The SDK is installed on the VM at `C:\Program Files (x86)\Sage\Peachtree\API`, including `Sage.Peachtree.API.dll`.
 - Build the `Sage50Connector.sln` solution as **x86** and target .NET Framework 4.8. `Any CPU` is not appropriate for the Sage SDK.

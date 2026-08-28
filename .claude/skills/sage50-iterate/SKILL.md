@@ -48,6 +48,13 @@ Check the VM end with:
 
 The VM builds from `origin/master`; it does not see your working tree.
 
+This push instruction applies only to the `Sage50Connector` repository. Direct
+pushes to its `master` branch are allowed. Never push directly to `main` (or
+another protected/default branch) in the sibling `rutter-backend` repository;
+keep backend work local or push it to a non-default feature branch for a PR,
+unless the user explicitly authorizes that exact direct push in the current
+request.
+
 ```bash
 git add -A && git commit -m "..." && git push origin master
 ```
