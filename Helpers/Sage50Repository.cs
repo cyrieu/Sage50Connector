@@ -63,6 +63,10 @@ namespace Sage50Connector.Helpers
                     var identifier = m_compManager.ResolveByDatabaseName(Program.DatabaseName);
                     if (identifier != null)
                     {
+                        global::Sage50Connector.Program.WriteToFile(
+                            "Resolved company '" + identifier.CompanyName
+                                + "' directly by saved database name '" + Program.DatabaseName
+                                + "' (no CompanyList() enumeration needed).");
                         return m_compManager.OpenCompany(identifier);
                     }
                 }
