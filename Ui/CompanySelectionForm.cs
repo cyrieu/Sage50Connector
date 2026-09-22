@@ -28,6 +28,7 @@ namespace Sage50Connector.Ui
         private readonly Label error = new Label();
         private readonly LinkLabel browseLink = new LinkLabel();
         private readonly Button connect = new Button();
+        private readonly LinkLabel diagnosticsLink = new LinkLabel();
 
         public CompanySelectionForm(string setupToken, string apiBaseUrl)
         {
@@ -35,7 +36,7 @@ namespace Sage50Connector.Ui
             this.apiBaseUrl = apiBaseUrl.TrimEnd('/');
 
             Text = "Connect Rutter to Sage 50";
-            ClientSize = new Size(520, 290);
+            ClientSize = new Size(520, 320);
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
             MinimizeBox = false;
@@ -71,16 +72,24 @@ namespace Sage50Connector.Ui
             browseLink.LinkClicked += async (s, e) => await BrowseForCompanyFolderAsync();
 
             connect.Text = "Connect company";
-            connect.SetBounds(366, 248, 132, 28);
+            diagnosticsLink.Text = "Open diagnostic report";
+            diagnosticsLink.SetBounds(18, 239, 260, 22);
+            diagnosticsLink.Visible = false;
+            diagnosticsLink.LinkClicked += (s, e) =>
+            {
+                try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(SageSdkDiagnostics.ReportPath) { UseShellExecute = true }); }
+                catch (Exception ex) { error.Text = "Could not open report: " + ex.Message; }
+            };
+            connect.SetBounds(366, 278, 132, 28);
             connect.Enabled = false;
             connect.Click += async (s, e) => await CompleteSetupAsync();
 
             var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel };
-            cancel.SetBounds(276, 248, 82, 28);
+            cancel.SetBounds(276, 278, 82, 28);
 
             Controls.AddRange(new Control[]
             {
-                heading, explanation, companies, detail, error, browseLink, connect, cancel,
+                heading, explanation, companies, detail, error, browseLink, diagnosticsLink, connect, cancel,
             });
             AcceptButton = connect;
             CancelButton = cancel;
@@ -89,6 +98,7 @@ namespace Sage50Connector.Ui
 
         private void LoadCompanies()
         {
+            SageSdkDiagnostics.Capture("setup-company-list-start");
             try
             {
                 var available = CompanyManager.Instance.Companies
@@ -96,8 +106,14 @@ namespace Sage50Connector.Ui
                     .Select(company => new CompanyChoice(company))
                     .ToArray();
                 companies.Items.AddRange(available);
+                SageSdkDiagnostics.Capture("setup-company-list-result", companies: available.Select(c => new
+                {
+                    c.Identifier.CompanyName, c.Identifier.Guid, c.Identifier.DatabaseName,
+                    c.Identifier.ServerName, c.Identifier.Path
+                }).ToArray());
                 if (available.Length == 0)
                 {
+                    diagnosticsLink.Visible = SageSdkDiagnostics.ReportPath != null;
                     error.Text = "No Sage 50 companies were found for this Windows user. "
                         + "Use \"Browse for its folder\" below instead.";
                     return;
@@ -110,6 +126,8 @@ namespace Sage50Connector.Ui
             }
             catch (Exception ex)
             {
+                SageSdkDiagnostics.Capture("setup-company-list-failed", ex);
+                diagnosticsLink.Visible = SageSdkDiagnostics.ReportPath != null;
                 error.Text = "Rutter could not read the Sage 50 company list: " + ex.Message
                     + " Use \"Browse for its folder\" below instead.";
             }
@@ -150,6 +168,8 @@ namespace Sage50Connector.Ui
                 }
                 catch (Exception ex)
                 {
+                    SageSdkDiagnostics.Capture("setup-folder-lookup-failed", ex);
+                    diagnosticsLink.Visible = SageSdkDiagnostics.ReportPath != null;
                     detail.Text = string.Empty;
                     error.Text = ex.Message;
                 }

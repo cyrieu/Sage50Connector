@@ -101,18 +101,35 @@ namespace Sage50Connector.Helpers
                 if (m_peachtreeSession == null)
                 {
                     // Create the Peachtree Session object and provide the application token
-                    m_peachtreeSession = new PeachtreeSession();
+                    var candidate = new PeachtreeSession();
 
                     // Note: an empty ApplicationIdentifier will only allow access to Peachtree Sample companies.
                     // To access other companies, you must contact Sage to obtain a valid ApplicationIdentifier
                     //m_peachtreeSession.Begin(string.Empty);
-                    m_peachtreeSession.Begin(ApplicationIdentifier);
+                    SageSdkDiagnostics.Capture("before-session-begin");
+                    try
+                    {
+                        candidate.Begin(ApplicationIdentifier);
+                        // Publish only a successfully initialized session.
+                        m_peachtreeSession = candidate;
+                    }
+                    catch (Exception ex)
+                    {
+                        SageSdkDiagnostics.Capture("session-begin-failed", ex);
+                        try { candidate.End(); } catch { }
+                        try { (candidate as IDisposable)?.Dispose(); } catch { }
+                        throw;
+                    }
                 }
                 return m_peachtreeSession;
             }
         }
         
         private static Sage50Connector m_Sage50Connector = null;
+        internal static void ShutdownExistingSession()
+        {
+            m_Sage50Connector?.Shutdown();
+        }
         public static Sage50Connector Instance
         {
             get

@@ -66,6 +66,7 @@ namespace Sage50Connector.Helpers
             }
             catch (Exception ex)
             {
+                SageSdkDiagnostics.Capture("company-list-default-failed", ex);
                 global::Sage50Connector.Program.WriteToFile("Sage 50 company enumeration failed (default server): " + ex.GetType().Name + ": " + ex.Message);
                 try
                 {
@@ -73,6 +74,7 @@ namespace Sage50Connector.Helpers
                 }
                 catch (Exception ex2)
                 {
+                    SageSdkDiagnostics.Capture("company-list-server-failed", ex2);
                     global::Sage50Connector.Program.WriteToFile("Sage 50 company enumeration failed (server '" + Environment.MachineName + "'): " + ex2.GetType().Name + ": " + ex2.Message);
                     throw;
                 }

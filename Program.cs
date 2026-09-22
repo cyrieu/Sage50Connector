@@ -131,6 +131,8 @@ namespace Sage50Connector
         [STAThread]
         public static int Main(string[] args)
         {
+            if (args.Length > 0 && string.Equals(args[0], "--diagnose-sdk", StringComparison.OrdinalIgnoreCase))
+                return SageSdkDiagnostics.Run();
             if (args.Length > 0 && args[0].StartsWith("rutter-sage50:", StringComparison.OrdinalIgnoreCase))
             {
                 StopExistingTrayInstance();
