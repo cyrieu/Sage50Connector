@@ -83,3 +83,29 @@ recovery, and no poisoned/uninitialized-session error. The real interactive
 setup also populated its picker when launched with the restricted PATH. Local
 report evidence is under `artifacts/sdk-diagnostics-validation/recovery/` and
 `setup-recovered.png`.
+
+### Live sync after recovery
+
+The same development EXE (code commit `5765074`) was launched as the interactive
+lab user with all Actian/Pervasive runtime directories removed from its inherited
+PATH. Process 6952 logged the missing-DLL failure, recovered the installed runtime,
+and reached Sage approval. After the user approved this rebuilt EXE for the
+Bellwether sample company, the **same process** completed all 12 existing queued
+production-ingest jobs between 16:00 and 16:02 lab time: COMPANY_INFO, ACCOUNTS,
+CUSTOMERS, VENDORS, ITEMS, JOURNAL_ENTRIES, BILLS, TRANSACTIONS, INVOICES, EXPENSES,
+EMPLOYEES, and INVOICE_PAYMENTS. Read-only database checks confirmed each job's
+`completed` state; none remained enqueued/in progress. No new refresh was needed.
+
+The connector sent 156 accounts, 29 vendors and all 230 COM general-ledger
+transactions; this incremental run sent 34 customers (the remaining customer's
+LastSavedAt was outside the queued job's window). Normalized totals remained
+156 accounts, 35 customers, 29 vendors, and 230 transactions, all with non-null
+platform IDs. Those totals include previously synced rows; the newly completed
+jobs and successful HTTP responses are the evidence for this run.
+
+The connector reached NOOP and its UI showed Connected, Sage access fully
+approved, and last synced at 16:01. It was left running normally. Temporary test
+scheduled tasks were removed. Local evidence includes `sync-recovered.png`,
+`recovery/sync-jobs.txt`, and the filtered sync log and process report in the
+recovery directory. This validates runtime recovery through a live sync on the
+lab; it does not establish that missing PATH is the customer's root cause.
