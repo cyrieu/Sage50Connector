@@ -77,7 +77,7 @@ namespace Sage50Connector.Ui
             diagnosticsLink.Visible = false;
             diagnosticsLink.LinkClicked += (s, e) =>
             {
-                try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(SageSdkDiagnostics.ReportPath) { UseShellExecute = true }); }
+                try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("notepad.exe", "\"" + SageSdkDiagnostics.ReportPath + "\"") { UseShellExecute = true }); }
                 catch (Exception ex) { error.Text = "Could not open report: " + ex.Message; }
             };
             connect.SetBounds(366, 278, 132, 28);
