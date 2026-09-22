@@ -42,6 +42,11 @@ namespace Sage50Connector.Helpers
                         if (handle != IntPtr.Zero)
                         {
                             runtimeHandle = handle;
+                            // Actian dynamically loads additional components during
+                            // PvStart. Make the same installed directory available to
+                            // this process only; never change user/machine PATH.
+                            string processPath = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
+                            Environment.SetEnvironmentVariable("PATH", Path.GetDirectoryName(path) + ";" + processPath, EnvironmentVariableTarget.Process);
                             SageSdkDiagnostics.Capture("native-runtime-preloaded", companies: null);
                             try { Program.WriteToFile("Sage native runtime recovered from installed path: " + path); } catch { }
                             return true;

@@ -31,20 +31,16 @@ try {
         $data = $raw | ConvertFrom-Json
         $attempts = @($data | Where-Object { $_.stage -match '^diagnostic-attempt-' })
         if ($attempts.Count -ne 2) { throw 'Expected two attempts in the same process.' }
-        if ($scenario -eq 'without-actian-path') {
-            if ($process.ExitCode -ne 1 -or $raw -notmatch 'w3dbav90' -or $raw -match 'uninitialized PeachtreeSession') {
-                throw 'Missing-native-DLL failure / clean retry assertions failed.'
-            }
-            foreach ($attempt in $attempts) {
-                if (-not ($attempt.errors | Where-Object { $_.type -eq 'System.DllNotFoundException' })) {
-                    throw 'Expected original DLL failure on each attempt.'
-                }
-            }
+        if ($process.ExitCode -ne 0) { throw ($scenario + ' unexpectedly failed.') }
+        foreach ($attempt in $attempts) {
+            if (@($attempt.companies).Count -lt 1 -or @($attempt.errors).Count -ne 0) { throw 'Healthy discovery failed.' }
         }
-        else {
-            if ($process.ExitCode -ne 0) { throw ($scenario + ' unexpectedly failed.') }
-            foreach ($attempt in $attempts) {
-                if (@($attempt.companies).Count -lt 1 -or @($attempt.errors).Count -ne 0) { throw 'Healthy discovery failed.' }
+        if ($scenario -eq 'without-actian-path') {
+            foreach ($stage in @('session-begin-failed', 'native-runtime-preloaded', 'session-begin-recovered')) {
+                if (-not ($data | Where-Object { $_.stage -eq $stage })) { throw ('Missing recovery evidence: ' + $stage) }
+            }
+            if ($raw -notmatch 'System.DllNotFoundException' -or $raw -match 'uninitialized PeachtreeSession') {
+                throw 'Expected original DLL failure followed by successful clean-session recovery.'
             }
         }
         Copy-Item -LiteralPath $report.FullName -Destination (Join-Path $output ($scenario + '.json'))
