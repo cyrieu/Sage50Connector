@@ -118,7 +118,24 @@ namespace Sage50Connector.Helpers
                         SageSdkDiagnostics.Capture("session-begin-failed", ex);
                         try { candidate.End(); } catch { }
                         try { (candidate as IDisposable)?.Dispose(); } catch { }
-                        throw;
+                        if (!SageNativeRuntime.TryRecover(ex)) throw;
+
+                        // One retry, using a fresh session after loading the local
+                        // vendor runtime. Never keep the failed candidate cached.
+                        var retry = new PeachtreeSession();
+                        try
+                        {
+                            retry.Begin(ApplicationIdentifier);
+                            m_peachtreeSession = retry;
+                            SageSdkDiagnostics.Capture("session-begin-recovered");
+                        }
+                        catch (Exception retryError)
+                        {
+                            SageSdkDiagnostics.Capture("session-begin-retry-failed", retryError);
+                            try { retry.End(); } catch { }
+                            try { (retry as IDisposable)?.Dispose(); } catch { }
+                            throw;
+                        }
                     }
                 }
                 return m_peachtreeSession;

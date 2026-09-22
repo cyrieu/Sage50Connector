@@ -66,6 +66,7 @@
   <ItemGroup>
     <Compile Include="Helpers\CompanyManager.cs" />
     <Compile Include="Helpers\SageSdkDiagnostics.cs" />
+    <Compile Include="Helpers\SageNativeRuntime.cs" />
     <Compile Include="Helpers\CompanyIdentifierReflectionFactory.cs" />
     <Compile Include="Helpers\ConnectorConfig.cs" />
     <Compile Include="Helpers\ComCredentialProvisioner.cs" />
