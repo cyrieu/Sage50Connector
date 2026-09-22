@@ -59,18 +59,33 @@ namespace Sage50Connector.Helpers
                     };
                     if (Events.Count == 16) Events.RemoveAt(0);
                     Events.Add(snapshot);
-                    if (ReportPath == null)
+                    string json = JsonConvert.SerializeObject(Events, Formatting.Indented);
+                    if (ReportPath != null)
                     {
-                        string directory = Path.Combine(ConnectorConfig.ConfigDirectory, "diagnostics");
-                        try { Directory.CreateDirectory(directory); }
-                        catch
-                        {
-                            directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Rutter", "Sage50Connector", "diagnostics");
-                            Directory.CreateDirectory(directory);
-                        }
-                        ReportPath = Path.Combine(directory, "sdk-" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss") + "-" + Process.GetCurrentProcess().Id + ".json");
+                        File.WriteAllText(ReportPath, json);
                     }
-                    File.WriteAllText(ReportPath, JsonConvert.SerializeObject(Events, Formatting.Indented));
+                    else
+                    {
+                        string fileName;
+                        using (var process = Process.GetCurrentProcess())
+                            fileName = "sdk-" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss") + "-" + process.Id + ".json";
+                        foreach (string directory in new[]
+                        {
+                            Path.Combine(ConnectorConfig.ConfigDirectory, "diagnostics"),
+                            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Rutter", "Sage50Connector", "diagnostics")
+                        })
+                        {
+                            try
+                            {
+                                Directory.CreateDirectory(directory);
+                                string path = Path.Combine(directory, fileName);
+                                File.WriteAllText(path, json);
+                                ReportPath = path; // Only expose files actually written.
+                                break;
+                            }
+                            catch { }
+                        }
+                    }
                     try { Program.WriteToFile("Sage SDK diagnostics: " + stage + "; report=" + ReportPath); } catch { }
                 }
                 catch
