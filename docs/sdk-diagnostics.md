@@ -50,5 +50,11 @@ The real setup form was exercised via a 32-bit STA reflection harness:
 restricted PATH produced zero choices, the original DLL error, a visible report
 link, and a saved report. Normal PATH populated the companies. These are control
 assertions, not a substitute for visual inspection in the interactive desktop.
+The interactive desktop was then checked through Mac Windows App: the actual
+connector setup showed the reproduced DLL error and its report link; clicking
+the link opened the report in Notepad. Relaunching with the normal environment
+displayed all six companies in the picker. Screenshots are kept in ignored local
+`artifacts/sdk-diagnostics-validation/`, not committed. Setup used a dummy token
+and loopback API address; Connect company was never clicked.
 No machine PATH, registry configuration, Sage installation files, grants, or
 company data were changed to produce the failure.
