@@ -58,3 +58,28 @@ displayed all six companies in the picker. Screenshots are kept in ignored local
 and loopback API address; Connect company was never clicked.
 No machine PATH, registry configuration, Sage installation files, grants, or
 company data were changed to produce the failure.
+
+## Automatic recovery for the installed Actian runtime
+
+On a `DllNotFoundException` naming `w3dbav90.dll`, session initialization now
+looks in the standard Program Files Actian Zen/PSQL and Pervasive PSQL runtime
+folders. It loads the installed DLL by absolute path with
+`LOAD_WITH_ALTERED_SEARCH_PATH`, prepends that folder to **this process's** PATH
+(for Actian's dynamically loaded components), and retries `Begin` once using a
+fresh session. It retains the native module for the process lifetime. It does
+not copy DLLs, install software, change machine/user PATH, or bypass Sage access
+approval. Other errors do not trigger this recovery. Failed recovery remains a
+visible error with diagnostic evidence.
+
+Loading just the primary DLL was insufficient on the lab: `PvStart` then failed
+with DTI error 8020. Including the vendor directory in the connector process's
+PATH resolved that dependency-discovery failure.
+
+Verified the recovery build on 2026-09-22 with
+`diagnostics/Test-ConnectorSdk.ps1`: baseline, restricted PATH, and restored PATH
+all exited 0 and found six companies on both discovery attempts. The restricted
+case asserts the original DLL exception, successful native preload and session
+recovery, and no poisoned/uninitialized-session error. The real interactive
+setup also populated its picker when launched with the restricted PATH. Local
+report evidence is under `artifacts/sdk-diagnostics-validation/recovery/` and
+`setup-recovered.png`.
