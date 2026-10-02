@@ -977,7 +977,7 @@ namespace Sage50Connector
                         + AccessKey.Length
                 );
                 var request = new HttpRequestMessage(HttpMethod.Post, Config.IngestUrl);
-                request.Headers.Add("X-Rutter-Version", "2024-04-30");
+                request.Headers.Add(ConnectionProbe.IngestVersionHeaderName, ConnectionProbe.IngestVersion);
                 request.Headers.Add("Authorization", $"Bearer {AccessKey}");
 
                 var requestBody = new
@@ -1675,7 +1675,7 @@ namespace Sage50Connector
             using (HttpClient client = new HttpClient())
             {
                 var request = new HttpRequestMessage(HttpMethod.Post, Config.IngestUrl);
-                request.Headers.Add("X-Rutter-Version", "2024-04-30");
+                request.Headers.Add(ConnectionProbe.IngestVersionHeaderName, ConnectionProbe.IngestVersion);
                 request.Headers.Add("Authorization", $"Bearer {AccessKey}");
                 request.Content = new StringContent(jsonString, Encoding.UTF8, "application/json");
 

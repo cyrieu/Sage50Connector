@@ -65,7 +65,9 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Helpers\AtomicFile.cs" />
+    <Compile Include="Helpers\ConnectionProbe.cs" />
     <Compile Include="Helpers\ConnectionRegistry.cs" />
+    <Compile Include="Helpers\SageCompanyLocator.cs" />
     <Compile Include="Helpers\CompanyManager.cs" />
     <Compile Include="Helpers\SageSdkDiagnostics.cs" />
     <Compile Include="Helpers\SageNativeRuntime.cs" />
