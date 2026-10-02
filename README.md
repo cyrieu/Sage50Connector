@@ -84,9 +84,43 @@ The command-line setup path is retained for development and recovery. Normal
 customer setup never asks anyone to type a Sage company name or copy an inbound
 access token.
 
+## Multiple company files
+
+One install still syncs one Sage 50 company at a time. Every company that has
+finished Rutter Link setup (or `--setup`) is remembered in
+`%ProgramData%\Rutter\Sage50Connector\connections.json`. The access key in that
+file is encrypted to the Windows user who set it up. `sage50Config.json` is
+only the company that is syncing right now.
+
+Open the tray window and use the **Company file** list to switch. The connector
+checks two things before it changes anything:
+
+- **Connected** — Rutter still accepts this connection's token. The check does
+  not take a sync job off the queue.
+- **Company file present** — Sage 50 still has that company on this computer.
+  The file is not opened for the check.
+
+If Rutter says the connection was removed or its access was revoked, the list
+shows **Disconnected — reconnect via Rutter Link** and sync stays on the
+current company. That row can be removed from this computer's list; nothing is
+deleted in Sage or in Rutter. If Rutter cannot be reached, nothing changes and
+the switch can be tried again. If Sage cannot find the company file, nothing
+changes until the file is restored or re-imported.
+
+Companies that are not selected do not sync, so their Rutter jobs wait until
+you switch back. Adding a company that has never been set up is still done in
+Rutter Link; the list only shows companies that already completed setup. The
+first time an upgraded connector starts, the company already in
+`sage50Config.json` is added to the list automatically.
+
+Switching company does not by itself grant Sage access. A company that has
+never been given **Always Allow Access** for this connector version still has
+to be approved the usual way (File → Close Company, reopen, Always Allow
+Access). Transaction access is remembered separately for each company.
+
 ## Configuration
 
-The connector reads exactly one config file:
+The connector syncs the company in exactly one active config file:
 `%ProgramData%\Rutter\Sage50Connector\sage50Config.json`
 
 ```json
@@ -111,10 +145,10 @@ connection isn't syncing.
 ## Uninstall
 
 Standard MSI uninstall removes the connector and its login-start registration.
-Exit the tray application before uninstalling. `sage50Config.json` and
-`log.txt` are left behind in `%ProgramData%\Rutter\Sage50Connector\` so a
-reinstall picks the connection up again; delete that directory for a completely
-clean removal.
+Exit the tray application before uninstalling. `sage50Config.json`,
+`connections.json`, and `log.txt` are left behind in
+`%ProgramData%\Rutter\Sage50Connector\` so a reinstall picks the connection up
+again; delete that directory for a completely clean removal.
 
 ## Known limitations / follow-ups
 

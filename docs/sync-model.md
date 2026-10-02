@@ -73,6 +73,16 @@ The connector always reports every row in the page. Unchanged-row dedupe is left
 to the server upsert (content hash / `platform_id` match). No client-side hash
 cache.
 
+The tray can switch which company is active, but only one company syncs at a
+time. `connections.json` (DPAPI-encrypted access keys) remembers every company
+this Windows user has finished setting up. `sage50Config.json` is the company
+the poll loop is reading and posting as. A switch waits until the current job
+has finished posting, drops `JobFetchCache` and the in-memory company identity,
+then reloads the new config. The other companies' jobs stay queued at Rutter
+until they are selected. A Rutter mock ingest probe (`mock: LIST_FETCH`) and a
+Sage company-file lookup both have to succeed first; either failure leaves the
+previous config in place.
+
 Optional `start_date` / `end_date` (yyyy-MM-dd) filter transaction bodies by
 document `Date` after load (fiscal / outer range windowing). **TRANSACTIONS
 (GL) do not use `start_date`/`end_date` on recurring SIDE_REFRESH** — the COM
