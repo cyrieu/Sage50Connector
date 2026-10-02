@@ -100,6 +100,29 @@ namespace Sage50Connector.Helpers
             Raise();
         }
 
+        /// <summary>
+        /// The active company changed. Entity totals and Sage approval belong to
+        /// the company that was syncing; showing them for the next one would be
+        /// a lie, and an approval flag would skip the new company's prompt.
+        /// </summary>
+        public void ResetForCompany(string company)
+        {
+            lock (gate)
+            {
+                companyName = company;
+                entities.Clear();
+                lastSyncAt = null;
+                state = ConnectorState.Starting;
+                message = "Switching to " + (company ?? "the selected company") + "…";
+                currentEntity = null;
+                recordsDone = 0;
+                recordsTotal = 0;
+                sageAuthorization = SageAuthorizationState.Unknown;
+                comAuthorization = SageAuthorizationState.Unknown;
+            }
+            Raise();
+        }
+
         public void SetUpdateAvailability(UpdateCheckResult result)
         {
             if (result == null) return;

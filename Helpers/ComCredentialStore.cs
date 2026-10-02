@@ -1,8 +1,10 @@
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Xml.Linq;
@@ -81,6 +83,12 @@ namespace Sage50Connector.Helpers
         /// Avoid requiring Sage to be open on every ordinary connector restart.
         /// The live COM probe is still repeated after an SDK re-approval and
         /// immediately before every TRANSACTIONS export.
+        ///
+        /// The marker remembers every company GUID confirmed on this machine.
+        /// A single slot would let a switch either skip the prompt for a company
+        /// that was never approved or repeat it for one that already was.
+        /// The COM application credential itself stays shared; Sage issues one
+        /// partner login for the connector, not one per company file.
         /// </summary>
         public static bool IsAuthorizationConfirmed(string companyGuid, string companyName)
         {
@@ -88,11 +96,8 @@ namespace Sage50Connector.Helpers
             {
                 if (!File.Exists(AuthorizationMarkerFilePath)) return false;
                 JObject marker = JObject.Parse(File.ReadAllText(AuthorizationMarkerFilePath));
-                string savedGuid = marker.Value<string>("companyGuid");
-                if (!string.IsNullOrWhiteSpace(companyGuid))
-                    return string.Equals(savedGuid, companyGuid, StringComparison.OrdinalIgnoreCase);
-                return string.Equals(
-                    marker.Value<string>("companyName"), companyName, StringComparison.Ordinal);
+                return EnumerateAuthorizations(marker)
+                    .Any(entry => MatchesCompany(entry, companyGuid, companyName));
             }
             catch
             {
@@ -102,24 +107,75 @@ namespace Sage50Connector.Helpers
 
         public static void MarkAuthorizationConfirmed(string companyGuid, string companyName)
         {
-            Directory.CreateDirectory(ConnectorConfig.ConfigDirectory);
-            string temporaryPath = AuthorizationMarkerFilePath + ".tmp";
+            JObject marker = new JObject();
             try
             {
-                File.WriteAllText(temporaryPath, JsonConvert.SerializeObject(new
-                {
-                    companyGuid,
-                    companyName,
-                    confirmedAt = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture),
-                }));
                 if (File.Exists(AuthorizationMarkerFilePath))
-                    File.Delete(AuthorizationMarkerFilePath);
-                File.Move(temporaryPath, AuthorizationMarkerFilePath);
+                    marker = JObject.Parse(File.ReadAllText(AuthorizationMarkerFilePath));
             }
-            finally
+            catch
             {
-                if (File.Exists(temporaryPath)) try { File.Delete(temporaryPath); } catch { }
+                marker = new JObject();
             }
+
+            var entries = EnumerateAuthorizations(marker)
+                .Where(entry => !MatchesCompany(entry, companyGuid, companyName))
+                .Select(entry => new JObject
+                {
+                    ["companyGuid"] = entry.Value<string>("companyGuid"),
+                    ["companyName"] = entry.Value<string>("companyName"),
+                    ["confirmedAt"] = entry.Value<string>("confirmedAt"),
+                })
+                .ToList();
+            entries.Add(new JObject
+            {
+                ["companyGuid"] = companyGuid,
+                ["companyName"] = companyName,
+                ["confirmedAt"] = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture),
+            });
+
+            var companies = new JArray();
+            foreach (JObject entry in entries)
+                companies.Add(entry);
+            AtomicFile.WriteAllText(
+                AuthorizationMarkerFilePath,
+                new JObject { ["companies"] = companies }.ToString(Formatting.Indented));
+        }
+
+        /// <summary>
+        /// Accepts the current <c>companies</c> array and the older single-object
+        /// file written before company switching existed.
+        /// </summary>
+        private static IEnumerable<JObject> EnumerateAuthorizations(JObject marker)
+        {
+            JArray companies = marker["companies"] as JArray;
+            if (companies != null)
+            {
+                foreach (JToken token in companies)
+                {
+                    JObject entry = token as JObject;
+                    if (entry != null) yield return entry;
+                }
+                yield break;
+            }
+
+            if (marker["companyGuid"] != null || marker["companyName"] != null)
+                yield return marker;
+        }
+
+        private static bool MatchesCompany(JObject entry, string companyGuid, string companyName)
+        {
+            if (!string.IsNullOrWhiteSpace(companyGuid))
+            {
+                return string.Equals(
+                    entry.Value<string>("companyGuid"),
+                    companyGuid,
+                    StringComparison.OrdinalIgnoreCase);
+            }
+            return string.Equals(
+                entry.Value<string>("companyName"),
+                companyName,
+                StringComparison.Ordinal);
         }
 
         private static SageComCredential LoadCurrent()

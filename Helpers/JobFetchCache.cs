@@ -43,5 +43,17 @@ namespace Sage50Connector.Helpers
                 ByJob.Remove(Key(jobId, entity));
             }
         }
+
+        /// <summary>
+        /// Drops every cached page. A company switch must not reuse company A's
+        /// snapshot while posting to company B's connection.
+        /// </summary>
+        public static void Clear()
+        {
+            lock (Gate)
+            {
+                ByJob.Clear();
+            }
+        }
     }
 }

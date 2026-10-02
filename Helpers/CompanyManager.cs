@@ -18,6 +18,17 @@ namespace Sage50Connector.Helpers
 
         public Company CurrentCompany { get; set; }
         private static CompanyManager m_CompanyManager = null;
+
+        /// <summary>
+        /// Drops the company pointer held beside the Sage session. Shutdown
+        /// nulls the session's company; this one is a second field, and leaving
+        /// it set would let the next sync read the previous company's data.
+        /// </summary>
+        internal static void ForgetOpenCompany()
+        {
+            if (m_CompanyManager != null)
+                m_CompanyManager.CurrentCompany = null;
+        }
         public static CompanyManager Instance
         {
             get

@@ -49,6 +49,9 @@ namespace Sage50Connector.Helpers
             m_peachtreeSession = null;
             Company company = CurrentCompany;
             CurrentCompany = null;
+            // CompanyManager keeps its own CurrentCompany. Clear it whenever the
+            // session goes away so a company switch cannot read the old company.
+            CompanyManager.ForgetOpenCompany();
 
             if (session == null)
             {

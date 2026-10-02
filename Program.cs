@@ -365,13 +365,26 @@ namespace Sage50Connector
             int consecutiveWorkerFailures = 0;
             while (!cancellationToken.IsCancellationRequested)
             {
+                if (WaitIfCompanySwitchIsHolding(cancellationToken))
+                    return 0;
+
+                CancellationTokenSource companyCancellation = null;
                 try
                 {
-                    int result = RunHeadless(cancellationToken);
-                    if (result != 0 || cancellationToken.IsCancellationRequested)
-                    {
+                    companyCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                    if (!TryBeginCompanyRun(companyCancellation))
+                        continue;
+
+                    int result = RunHeadless(companyCancellation.Token);
+                    if (cancellationToken.IsCancellationRequested)
                         return result;
+                    if (companyCancellation.IsCancellationRequested || IsWorkerHeld())
+                    {
+                        consecutiveWorkerFailures = 0;
+                        continue;
                     }
+                    if (result != 0)
+                        return result;
 
                     throw new InvalidOperationException("The sync worker stopped without a shutdown request.");
                 }
@@ -379,35 +392,184 @@ namespace Sage50Connector
                 {
                     return 0;
                 }
+                catch (OperationCanceledException)
+                {
+                    // Company switch cancelled this run at a job boundary.
+                    consecutiveWorkerFailures = 0;
+                }
                 catch (Exception ex)
                 {
-                    consecutiveWorkerFailures++;
-                    ReleaseSageSession();
-                    TimeSpan restartDelay = CalculateRetryDelay(consecutiveWorkerFailures);
-                    WriteToFile(
-                        DateTime.Now
-                            + ": Sync worker stopped unexpectedly: "
-                            + ex
-                            + ". Restarting in "
-                            + Math.Ceiling(restartDelay.TotalSeconds)
-                            + "s."
-                    );
-                    Helpers.SyncStatus.Instance.SetOffline(
-                        "Sync worker stopped unexpectedly. Restarting in "
-                            + Math.Ceiling(restartDelay.TotalSeconds)
-                            + " seconds…");
-                    try
+                    bool switching = IsWorkerHeld()
+                        || (companyCancellation != null
+                            && companyCancellation.IsCancellationRequested
+                            && !cancellationToken.IsCancellationRequested);
+                    if (switching)
                     {
-                        DelayInterruptible(restartDelay, cancellationToken).GetAwaiter().GetResult();
+                        consecutiveWorkerFailures = 0;
+                        ReleaseSageSession();
+                        WriteToFile(
+                            DateTime.Now
+                                + ": Sync worker stopped for a company switch: "
+                                + ex.Message);
                     }
-                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    else
                     {
-                        return 0;
+                        consecutiveWorkerFailures++;
+                        ReleaseSageSession();
+                        TimeSpan restartDelay = CalculateRetryDelay(consecutiveWorkerFailures);
+                        WriteToFile(
+                            DateTime.Now
+                                + ": Sync worker stopped unexpectedly: "
+                                + ex
+                                + ". Restarting in "
+                                + Math.Ceiling(restartDelay.TotalSeconds)
+                                + "s."
+                        );
+                        Helpers.SyncStatus.Instance.SetOffline(
+                            "Sync worker stopped unexpectedly. Restarting in "
+                                + Math.Ceiling(restartDelay.TotalSeconds)
+                                + " seconds…");
+                        try
+                        {
+                            DelayInterruptible(restartDelay, cancellationToken).GetAwaiter().GetResult();
+                        }
+                        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                        {
+                            return 0;
+                        }
                     }
+                }
+                finally
+                {
+                    EndCompanyRun(companyCancellation);
                 }
             }
 
             return 0;
+        }
+
+        private static readonly object WorkerLifecycleGate = new object();
+        private static CancellationTokenSource activeCompanyCancellation;
+        private static volatile bool workerHeld;
+        private static readonly ManualResetEventSlim workerIdle = new ManualResetEventSlim(true);
+        private static readonly ManualResetEventSlim workerRelease = new ManualResetEventSlim(false);
+
+        /// <summary>
+        /// Stop the sync worker after the job it is already posting, and wait
+        /// until that run has released its Sage session. Returns false if the
+        /// job does not finish within <paramref name="timeout"/>.
+        /// </summary>
+        internal static bool PauseWorkerAtJobBoundary(TimeSpan timeout)
+        {
+            CancellationTokenSource running;
+            workerRelease.Reset();
+            lock (WorkerLifecycleGate)
+            {
+                workerHeld = true;
+                running = activeCompanyCancellation;
+            }
+
+            try { SyncNowSignal?.Set(); }
+            catch (ObjectDisposedException) { }
+
+            if (running != null)
+            {
+                try { running.Cancel(); }
+                catch (ObjectDisposedException) { }
+            }
+
+            return workerIdle.Wait(timeout);
+        }
+
+        /// <summary>
+        /// Lets the supervisor start a worker again. The next run reloads
+        /// sage50Config.json, so this must run only after that file and the
+        /// in-memory company statics describe the same company.
+        /// </summary>
+        internal static void ResumeWorkerAfterSwitch()
+        {
+            try { SyncNowSignal?.Reset(); }
+            catch (ObjectDisposedException) { }
+
+            lock (WorkerLifecycleGate)
+            {
+                workerHeld = false;
+            }
+            workerRelease.Set();
+        }
+
+        private static bool IsWorkerHeld()
+        {
+            return workerHeld;
+        }
+
+        /// <summary>
+        /// True when the process itself is shutting down.
+        /// </summary>
+        private static bool WaitIfCompanySwitchIsHolding(CancellationToken cancellationToken)
+        {
+            while (IsWorkerHeld() && !cancellationToken.IsCancellationRequested)
+            {
+                workerIdle.Set();
+                int signaled = WaitHandle.WaitAny(new[]
+                {
+                    workerRelease.WaitHandle,
+                    cancellationToken.WaitHandle,
+                });
+                workerRelease.Reset();
+                if (signaled == 1 || cancellationToken.IsCancellationRequested)
+                    return true;
+            }
+            return cancellationToken.IsCancellationRequested;
+        }
+
+        private static bool TryBeginCompanyRun(CancellationTokenSource companyCancellation)
+        {
+            lock (WorkerLifecycleGate)
+            {
+                if (workerHeld || companyCancellation.IsCancellationRequested)
+                    return false;
+                activeCompanyCancellation = companyCancellation;
+                workerIdle.Reset();
+                return true;
+            }
+        }
+
+        private static void EndCompanyRun(CancellationTokenSource companyCancellation)
+        {
+            lock (WorkerLifecycleGate)
+            {
+                if (ReferenceEquals(activeCompanyCancellation, companyCancellation))
+                    activeCompanyCancellation = null;
+            }
+            workerIdle.Set();
+            if (companyCancellation != null)
+            {
+                try { companyCancellation.Dispose(); }
+                catch (ObjectDisposedException) { }
+            }
+        }
+
+        /// <summary>
+        /// Forgets every in-memory copy of the active company and connection.
+        /// Call only while the sync worker is stopped. The next
+        /// <see cref="RunHeadless"/> loads sage50Config.json again.
+        ///
+        /// Audited statics: Program.Config, CompanyName, CompanyGuid,
+        /// DatabaseName, AccessKey, ConnectionId, comAuthorizationRetryRequested.
+        /// JobFetchCache and SyncStatus are cleared by the caller. Sage session
+        /// company pointers are cleared by Sage50Connector.Shutdown. There is no
+        /// separate resolved-company cache; OpenCompany reads the statics above.
+        /// </summary>
+        internal static void ClearCachedCompanyState()
+        {
+            Config = null;
+            CompanyName = null;
+            CompanyGuid = null;
+            DatabaseName = null;
+            AccessKey = null;
+            ConnectionId = null;
+            Interlocked.Exchange(ref comAuthorizationRetryRequested, 0);
         }
 
         private static ManualResetEventSlim SyncNowSignal;
