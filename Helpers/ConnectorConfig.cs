@@ -160,7 +160,38 @@ namespace Sage50Connector.Helpers
             {
                 json["ApiBaseUrl"] = config.ApiBaseUrl;
             }
-            File.WriteAllText(ConfigFilePath, json.ToString(Formatting.Indented));
+            AtomicFile.WriteAllText(ConfigFilePath, json.ToString(Formatting.Indented));
+            return config;
+        }
+
+        /// <summary>
+        /// Writes the active config and records the company in the local list.
+        /// Both setup paths go through here so one cannot forget the registry.
+        /// </summary>
+        public static ConnectorConfig SaveAndRegister(
+            string companyName,
+            string accessKey,
+            string connectionId,
+            string apiBaseUrl,
+            string companyGuid = null,
+            string databaseName = null)
+        {
+            ConnectorConfig config = Save(
+                companyName,
+                accessKey,
+                connectionId,
+                apiBaseUrl,
+                companyGuid,
+                databaseName);
+            ConnectionRegistry.Upsert(new StoredConnection
+            {
+                CompanyName = config.CompanyName,
+                CompanyGuid = config.CompanyGuid,
+                DatabaseName = config.DatabaseName,
+                ConnectionId = config.ConnectionId,
+                AccessKey = config.AccessKey,
+                ApiBaseUrl = config.ApiBaseUrl,
+            }, activate: true);
             return config;
         }
 
