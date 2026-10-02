@@ -109,8 +109,10 @@ namespace Sage50Connector.Helpers
                         Encoding.UTF8,
                         "application/json");
 
-                    HttpResponseMessage response = await client.SendAsync(request).ConfigureAwait(false);
-                    return FromHttpStatus((int)response.StatusCode);
+                    using (HttpResponseMessage response = await client.SendAsync(request).ConfigureAwait(false))
+                    {
+                        return FromHttpStatus((int)response.StatusCode);
+                    }
                 }
             }
             catch (Exception ex)

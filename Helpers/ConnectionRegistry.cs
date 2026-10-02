@@ -273,8 +273,10 @@ namespace Sage50Connector.Helpers
             catch (Exception ex)
             {
                 LoadError = "Couldn't read the company list (" + FileName + ").";
+                // The parser message can quote the file. The file holds ciphertext,
+                // so keep the exception type only.
                 global::Sage50Connector.Program.WriteToFile(
-                    "Company list could not be read: " + ex.GetType().Name + ": " + ex.Message);
+                    "Company list could not be read: " + ex.GetType().Name);
                 records = new List<StoredConnection>();
             }
 
