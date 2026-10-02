@@ -37,6 +37,7 @@ namespace Sage50Connector.Ui
             ContextMenuStrip menu = new ContextMenuStrip();
             menu.Items.Add("Open " + RuntimeEnvironment.DisplayName, null, (s, e) => ShowStatus());
             menu.Items.Add("Sync now", null, (s, e) => RequestSyncNow());
+            menu.Items.Add("Switch company", null, (s, e) => ShowCompanyList());
             menu.Items.Add("Check for updates…", null, async (s, e) => await CheckForUpdatesInteractiveAsync());
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Exit", null, (s, e) => ExitConnector());
@@ -61,6 +62,8 @@ namespace Sage50Connector.Ui
             }
             statusForm.SyncNowRequested += (s, e) => RequestSyncNow();
             statusForm.UpdateRequested += async (s, e) => await CheckForUpdatesInteractiveAsync();
+            statusForm.CompanyActivated += (s, e) => ApplyActiveApiBaseUrl();
+            ApplyActiveApiBaseUrl();
 
             // The sync loop owns a Sage session, so keep it off the UI thread.
             Task.Run(
@@ -81,6 +84,25 @@ namespace Sage50Connector.Ui
 
             // Quiet daily check; never auto-installs (Sage re-approval required).
             Task.Run(() => BackgroundUpdateLoop());
+        }
+
+        private void ShowCompanyList()
+        {
+            if (statusForm == null || statusForm.IsDisposed) return;
+            statusForm.FocusCompanyList();
+        }
+
+        private void ApplyActiveApiBaseUrl()
+        {
+            try
+            {
+                ConnectorConfig config = ConnectorConfig.Load();
+                SetApiBaseUrl(config.ApiBaseUrl);
+            }
+            catch
+            {
+                // Not set up yet. Update checks stay on the public production manifest.
+            }
         }
 
         /// <summary>Called from Program once config is loaded so checks hit the right API host.</summary>

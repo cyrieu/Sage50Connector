@@ -1,5 +1,6 @@
 using Sage50Connector.Helpers;
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.Windows.Forms;
@@ -15,7 +16,13 @@ namespace Sage50Connector.Ui
     /// </summary>
     public class StatusForm : Form
     {
+        private readonly Label companyFileLabel = new Label();
+        private readonly ComboBox companyCombo = new ComboBox();
+        private readonly Button removeCompanyButton = new Button();
         private readonly Label companyLabel = new Label();
+        private bool suppressCompanyEvent;
+        private bool companySwitchInProgress;
+        private string switchBanner;
         private readonly Label stateLabel = new Label();
         private readonly Label authorizationLabel = new Label();
         private readonly Label lastSyncLabel = new Label();
@@ -31,41 +38,55 @@ namespace Sage50Connector.Ui
 
         public event EventHandler SyncNowRequested;
         public event EventHandler UpdateRequested;
+        public event EventHandler CompanyActivated;
 
         public StatusForm()
         {
             Text = RuntimeEnvironment.DisplayName;
-            ClientSize = new Size(470, 458);
+            ClientSize = new Size(470, 498);
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
             StartPosition = FormStartPosition.CenterScreen;
             Font = SystemFonts.MessageBoxFont;
             Icon = TrayApplicationContext.LoadIcon();
 
-            companyLabel.SetBounds(14, 14, 440, 20);
+            companyFileLabel.SetBounds(14, 12, 440, 16);
+            companyFileLabel.Text = "Company file";
+
+            companyCombo.SetBounds(14, 30, 300, 24);
+            companyCombo.DropDownStyle = ComboBoxStyle.DropDownList;
+            companyCombo.DropDownWidth = 440;
+            companyCombo.SelectedIndexChanged += OnCompanySelected;
+
+            removeCompanyButton.SetBounds(320, 28, 134, 26);
+            removeCompanyButton.Text = "Remove from list";
+            removeCompanyButton.Enabled = false;
+            removeCompanyButton.Click += (s, e) => RemoveSelectedCompany();
+
+            companyLabel.SetBounds(14, 62, 440, 20);
             companyLabel.Font = new Font(Font, FontStyle.Bold);
 
-            stateLabel.SetBounds(14, 38, 440, 36);
+            stateLabel.SetBounds(14, 86, 440, 36);
 
-            progress.SetBounds(14, 78, 440, 16);
+            progress.SetBounds(14, 124, 440, 16);
             progress.Minimum = 0;
             progress.Maximum = 100;
 
-            authorizationLabel.SetBounds(14, 100, 440, 20);
+            authorizationLabel.SetBounds(14, 146, 440, 20);
             authorizationLabel.Font = new Font(Font, FontStyle.Bold);
 
-            lastSyncLabel.SetBounds(14, 120, 440, 20);
+            lastSyncLabel.SetBounds(14, 166, 440, 20);
             lastSyncLabel.ForeColor = SystemColors.GrayText;
 
-            versionLabel.SetBounds(14, 140, 440, 18);
+            versionLabel.SetBounds(14, 186, 440, 18);
             versionLabel.ForeColor = SystemColors.GrayText;
             versionLabel.Text = "Version " + AppVersion.Display
                 + (RuntimeEnvironment.IsInstalled ? "" : " (development build)");
 
-            updateLabel.SetBounds(14, 158, 440, 36);
+            updateLabel.SetBounds(14, 204, 440, 36);
             updateLabel.ForeColor = SystemColors.GrayText;
 
-            entityList.SetBounds(14, 196, 440, 100);
+            entityList.SetBounds(14, 242, 440, 100);
             entityList.View = View.Details;
             entityList.FullRowSelect = true;
             entityList.HeaderStyle = ColumnHeaderStyle.Nonclickable;
@@ -75,7 +96,7 @@ namespace Sage50Connector.Ui
 
             BuildAuthPanel();
 
-            syncNowButton.SetBounds(14, 418, 100, 26);
+            syncNowButton.SetBounds(14, 458, 100, 26);
             syncNowButton.Text = "Sync now";
             syncNowButton.Click += (s, e) =>
             {
@@ -84,11 +105,11 @@ namespace Sage50Connector.Ui
             };
 
             Button logsButton = new Button();
-            logsButton.SetBounds(122, 418, 100, 26);
+            logsButton.SetBounds(122, 458, 100, 26);
             logsButton.Text = "Open logs";
             logsButton.Click += (s, e) => OpenLogFolder();
 
-            updateButton.SetBounds(230, 418, 116, 26);
+            updateButton.SetBounds(230, 458, 116, 26);
             updateButton.Text = "Install update";
             updateButton.Visible = false;
             updateButton.Click += (s, e) =>
@@ -98,12 +119,13 @@ namespace Sage50Connector.Ui
             };
 
             Button closeButton = new Button();
-            closeButton.SetBounds(354, 418, 100, 26);
+            closeButton.SetBounds(354, 458, 100, 26);
             closeButton.Text = "Close";
             closeButton.Click += (s, e) => Hide();
 
             Controls.AddRange(new Control[]
             {
+                companyFileLabel, companyCombo, removeCompanyButton,
                 companyLabel, stateLabel, progress, authorizationLabel, lastSyncLabel,
                 versionLabel, updateLabel, entityList,
                 authPanel, syncNowButton, logsButton, updateButton, closeButton,
@@ -120,7 +142,19 @@ namespace Sage50Connector.Ui
             };
 
             SyncStatus.Instance.Changed += OnStatusChanged;
+            RefreshCompanies();
             Render();
+        }
+
+        /// <summary>Opens the window with the company list ready for a choice.</summary>
+        public void FocusCompanyList()
+        {
+            Show();
+            WindowState = FormWindowState.Normal;
+            Activate();
+            BringToFront();
+            if (companyCombo.Enabled)
+                companyCombo.Focus();
         }
 
         /// <summary>
@@ -131,7 +165,7 @@ namespace Sage50Connector.Ui
         /// </summary>
         private void BuildAuthPanel()
         {
-            authPanel.SetBounds(14, 304, 440, 96);
+            authPanel.SetBounds(14, 348, 440, 96);
             authPanel.BackColor = Color.FromArgb(255, 248, 225);
             authPanel.BorderStyle = BorderStyle.FixedSingle;
             authPanel.Visible = false;
@@ -170,7 +204,7 @@ namespace Sage50Connector.Ui
             companyLabel.Text = string.IsNullOrEmpty(s.CompanyName)
                 ? "No company configured"
                 : s.CompanyName;
-            stateLabel.Text = s.Message;
+            stateLabel.Text = string.IsNullOrEmpty(switchBanner) ? s.Message : switchBanner;
 
             switch (s.State)
             {
@@ -313,6 +347,238 @@ namespace Sage50Connector.Ui
                 entityList.Items.Add(item);
             }
             entityList.EndUpdate();
+
+            if (companySwitchInProgress)
+            {
+                companyCombo.Enabled = false;
+                removeCompanyButton.Enabled = false;
+                syncNowButton.Enabled = false;
+                updateButton.Enabled = false;
+            }
+            else
+            {
+                syncNowButton.Enabled = true;
+            }
+        }
+
+        private void RefreshCompanies()
+        {
+            IList<StoredConnection> connections;
+            try
+            {
+                connections = ConnectionRegistry.List();
+            }
+            catch (Exception ex)
+            {
+                Program.WriteToFile("Could not list companies: " + ex.Message);
+                connections = new List<StoredConnection>();
+            }
+
+            string activeId = null;
+            try
+            {
+                activeId = ConnectorConfig.Load().ConnectionId;
+            }
+            catch
+            {
+                // Not set up yet: the list is empty and the dropdown stays disabled.
+            }
+
+            var nameCounts = new Dictionary<string, int>(StringComparer.CurrentCultureIgnoreCase);
+            foreach (StoredConnection connection in connections)
+            {
+                string name = connection.CompanyName ?? string.Empty;
+                int count;
+                nameCounts.TryGetValue(name, out count);
+                nameCounts[name] = count + 1;
+            }
+
+            suppressCompanyEvent = true;
+            try
+            {
+                companyCombo.Items.Clear();
+                int activeIndex = -1;
+                for (int i = 0; i < connections.Count; i++)
+                {
+                    StoredConnection connection = connections[i];
+                    bool isActive = string.Equals(
+                        connection.ConnectionId, activeId, StringComparison.OrdinalIgnoreCase);
+                    int count;
+                    nameCounts.TryGetValue(connection.CompanyName ?? string.Empty, out count);
+                    companyCombo.Items.Add(new CompanyFileItem(
+                        connection,
+                        ConnectionRegistry.FormatLabel(connection, count > 1, isActive)));
+                    if (isActive) activeIndex = i;
+                }
+                if (activeIndex >= 0)
+                    companyCombo.SelectedIndex = activeIndex;
+                else if (companyCombo.Items.Count > 0)
+                    companyCombo.SelectedIndex = 0;
+
+                companyFileLabel.Text = string.IsNullOrEmpty(ConnectionRegistry.LoadError)
+                    ? "Company file"
+                    : "Company file (list unreadable)";
+                companyCombo.Enabled = !companySwitchInProgress
+                    && string.IsNullOrEmpty(ConnectionRegistry.LoadError)
+                    && companyCombo.Items.Count > 1;
+                UpdateRemoveButton();
+            }
+            finally
+            {
+                suppressCompanyEvent = false;
+            }
+        }
+
+        private async void OnCompanySelected(object sender, EventArgs e)
+        {
+            if (suppressCompanyEvent || companySwitchInProgress) return;
+            CompanyFileItem item = companyCombo.SelectedItem as CompanyFileItem;
+            if (item == null) return;
+
+            string activeId = null;
+            string activeName = SyncStatus.Instance.CompanyName;
+            try
+            {
+                ConnectorConfig active = ConnectorConfig.Load();
+                activeId = active.ConnectionId;
+                if (!string.IsNullOrWhiteSpace(active.CompanyName))
+                    activeName = active.CompanyName;
+            }
+            catch
+            {
+                // Fall through and let the switcher report the missing config.
+            }
+
+            if (!string.IsNullOrEmpty(activeId)
+                && string.Equals(item.Connection.ConnectionId, activeId, StringComparison.OrdinalIgnoreCase))
+            {
+                UpdateRemoveButton();
+                return;
+            }
+
+            removeCompanyButton.Enabled = false;
+            DialogResult answer = MessageBox.Show(
+                "Switch syncing to " + item.Connection.CompanyName + "? "
+                    + (string.IsNullOrWhiteSpace(activeName) ? "The current company" : activeName)
+                    + " will stop syncing until you switch back.",
+                RuntimeEnvironment.DisplayName,
+                MessageBoxButtons.OKCancel,
+                MessageBoxIcon.Question);
+            if (answer != DialogResult.OK)
+            {
+                RefreshCompanies();
+                return;
+            }
+
+            companySwitchInProgress = true;
+            switchBanner = "Checking " + item.Connection.CompanyName + "…";
+            Render();
+
+            CompanySwitchResult result;
+            try
+            {
+                result = await CompanySwitcher.SwitchToAsync(item.Connection.ConnectionId);
+            }
+            catch (Exception ex)
+            {
+                result = CompanySwitchResult.Failed(ex.Message);
+            }
+
+            companySwitchInProgress = false;
+            switchBanner = null;
+            if (IsDisposed) return;
+            RefreshCompanies();
+            Render();
+
+            if (result != null && result.Succeeded && !result.Unchanged)
+            {
+                EventHandler activated = CompanyActivated;
+                if (activated != null) activated(this, EventArgs.Empty);
+            }
+            else if (result != null && !result.Succeeded && !string.IsNullOrWhiteSpace(result.Message))
+            {
+                MessageBox.Show(
+                    result.Message,
+                    RuntimeEnvironment.DisplayName,
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+            }
+        }
+
+        private void RemoveSelectedCompany()
+        {
+            if (companySwitchInProgress) return;
+            CompanyFileItem item = companyCombo.SelectedItem as CompanyFileItem;
+            if (item == null) return;
+            if (!string.Equals(
+                item.Connection.LastProbeResult,
+                ConnectionProbeResults.Disconnected,
+                StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            DialogResult answer = MessageBox.Show(
+                "Remove " + item.Connection.CompanyName
+                    + " from the company list on this computer? This does not delete the company in Sage 50 or the connection in Rutter.",
+                RuntimeEnvironment.DisplayName,
+                MessageBoxButtons.OKCancel,
+                MessageBoxIcon.Question);
+            if (answer != DialogResult.OK) return;
+
+            try
+            {
+                if (!ConnectionRegistry.Remove(item.Connection.ConnectionId))
+                {
+                    MessageBox.Show(
+                        "That company is still the one being synced, so it stays in the list.",
+                        RuntimeEnvironment.DisplayName,
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    ex.Message,
+                    RuntimeEnvironment.DisplayName,
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+            }
+            RefreshCompanies();
+        }
+
+        private void UpdateRemoveButton()
+        {
+            CompanyFileItem item = companyCombo.SelectedItem as CompanyFileItem;
+            string activeId = null;
+            try { activeId = ConnectorConfig.Load().ConnectionId; }
+            catch { }
+            bool disconnected = item != null
+                && string.Equals(
+                    item.Connection.LastProbeResult,
+                    ConnectionProbeResults.Disconnected,
+                    StringComparison.Ordinal);
+            bool active = item != null
+                && string.Equals(item.Connection.ConnectionId, activeId, StringComparison.OrdinalIgnoreCase);
+            removeCompanyButton.Enabled = !companySwitchInProgress && disconnected && !active;
+        }
+
+        private sealed class CompanyFileItem
+        {
+            public StoredConnection Connection { get; private set; }
+            private readonly string label;
+
+            public CompanyFileItem(StoredConnection connection, string label)
+            {
+                Connection = connection;
+                this.label = label;
+            }
+
+            public override string ToString()
+            {
+                return label ?? string.Empty;
+            }
         }
 
         private static void OpenLogFolder()
