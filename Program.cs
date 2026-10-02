@@ -232,6 +232,15 @@ namespace Sage50Connector
                 return 1;
             }
 
+            try
+            {
+                ConnectionRegistry.EnsureLoaded();
+            }
+            catch (Exception registryError)
+            {
+                WriteToFile("Company list could not be loaded: " + registryError.Message);
+            }
+
             InstallSageSessionCleanup();
             Helpers.SyncStatus.Instance.SetCompany(CompanyName);
             Helpers.SyncStatus.Instance.SetIdle("Connecting…");
@@ -578,7 +587,7 @@ namespace Sage50Connector
                         return 1;
                     }
 
-                    var config = ConnectorConfig.Save(
+                    var config = ConnectorConfig.SaveAndRegister(
                         companyName,
                         sage50Config.Value<string>("AccessKey"),
                         sage50Config.Value<string>("ConnectionId"),

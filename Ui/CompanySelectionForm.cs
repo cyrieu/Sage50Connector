@@ -233,7 +233,7 @@ namespace Sage50Connector.Ui
                     {
                         throw new InvalidOperationException("Rutter did not return the connector configuration.");
                     }
-                    ConnectorConfig.Save(
+                    ConnectorConfig.SaveAndRegister(
                         config.Value<string>("CompanyName"),
                         config.Value<string>("AccessKey"),
                         config.Value<string>("ConnectionId"),
