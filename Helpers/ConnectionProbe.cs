@@ -38,7 +38,7 @@ namespace Sage50Connector.Helpers
             {
                 Status = ConnectionProbeResults.Disconnected,
                 StatusCode = statusCode,
-                UserMessage = DisconnectedMessage,
+                UserMessage = ConnectionProbe.DisconnectedMessage,
             };
         }
 
@@ -48,7 +48,7 @@ namespace Sage50Connector.Helpers
             {
                 Status = ConnectionProbeResults.Unreachable,
                 StatusCode = statusCode,
-                UserMessage = UnreachableMessage,
+                UserMessage = ConnectionProbe.UnreachableMessage,
             };
         }
     }
