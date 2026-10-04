@@ -261,6 +261,40 @@ namespace Sage50Connector.Helpers
             return InModifiedWindow(lastSavedAt, cutoff, null, includeMissingTimestamps: true);
         }
 
+        /// <summary>
+        /// Logs where a transaction read spends its time. On a real customer file
+        /// (2026-10-04) 4,869 bills took 46 hours with nothing logged between
+        /// "Resolved company" and the result, so it was impossible to tell a slow
+        /// Load() from slow per-record line access. These lines answer that.
+        /// </summary>
+        private sealed class ReadTimer
+        {
+            private const int TickEvery = 250;
+            private readonly string m_entity;
+            private readonly System.Diagnostics.Stopwatch m_watch = System.Diagnostics.Stopwatch.StartNew();
+            private int m_records;
+
+            public ReadTimer(string entity)
+            {
+                m_entity = entity;
+            }
+
+            public void Mark(string step)
+            {
+                global::Sage50Connector.Program.WriteToFile(
+                    m_entity + ": " + step + " at " + m_watch.Elapsed.TotalSeconds.ToString("F1") + "s.");
+            }
+
+            public void Tick()
+            {
+                m_records++;
+                if (m_records % TickEvery == 0)
+                {
+                    Mark("read " + m_records + " records");
+                }
+            }
+        }
+
         private static void LogFilterOutcome(
             string entity,
             int total,
@@ -602,16 +636,20 @@ namespace Sage50Connector.Helpers
 
             DateTime? after = ParseCutoff(updatedAt);
             DateTime? before = ParseCutoff(updatedBefore);
+            var timer = new ReadTimer("JOURNAL_ENTRIES");
             ReferenceIndex index = BuildReferenceIndex(accounts: true, customers: false, vendors: false);
+            timer.Mark("reference index built");
 
             var entries = CompanyManager.Instance.CurrentCompany.Factories.GeneralJournalEntryFactory.List();
             entries.Load();
+            timer.Mark("Sage Load() returned");
 
             int total = 0;
             int withoutTimestamp = 0;
             foreach (GeneralJournalEntry entry in entries)
             {
                 total++;
+                timer.Tick();
                 if (!HasTimestamp(entry.LastSavedAt))
                 {
                     withoutTimestamp++;
@@ -664,16 +702,20 @@ namespace Sage50Connector.Helpers
 
             DateTime? after = ParseCutoff(updatedAt);
             DateTime? before = ParseCutoff(updatedBefore);
+            var timer = new ReadTimer("INVOICES");
             ReferenceIndex index = BuildReferenceIndex(accounts: true, customers: true, vendors: false, inventoryItems: true);
+            timer.Mark("reference index built");
 
             var invoices = CompanyManager.Instance.CurrentCompany.Factories.SalesInvoiceFactory.List();
             invoices.Load();
+            timer.Mark("Sage Load() returned");
 
             int total = 0;
             int withoutTimestamp = 0;
             foreach (SalesInvoice invoice in invoices)
             {
                 total++;
+                timer.Tick();
                 if (!HasTimestamp(invoice.LastSavedAt))
                 {
                     withoutTimestamp++;
@@ -779,16 +821,20 @@ namespace Sage50Connector.Helpers
 
             DateTime? after = ParseCutoff(updatedAt);
             DateTime? before = ParseCutoff(updatedBefore);
+            var timer = new ReadTimer("BILLS");
             ReferenceIndex index = BuildReferenceIndex(accounts: true, customers: false, vendors: true, inventoryItems: true);
+            timer.Mark("reference index built");
 
             var bills = CompanyManager.Instance.CurrentCompany.Factories.PurchaseInvoiceFactory.List();
             bills.Load();
+            timer.Mark("Sage Load() returned");
 
             int total = 0;
             int withoutTimestamp = 0;
             foreach (PurchaseInvoice bill in bills)
             {
                 total++;
+                timer.Tick();
                 if (!HasTimestamp(bill.LastSavedAt))
                 {
                     withoutTimestamp++;
@@ -878,10 +924,13 @@ namespace Sage50Connector.Helpers
 
             DateTime? after = ParseCutoff(updatedAt);
             DateTime? before = ParseCutoff(updatedBefore);
+            var timer = new ReadTimer("EXPENSES");
             ReferenceIndex index = BuildReferenceIndex(accounts: true, customers: false, vendors: true);
+            timer.Mark("reference index built");
 
             var payments = CompanyManager.Instance.CurrentCompany.Factories.PaymentFactory.List();
             payments.Load();
+            timer.Mark("Sage Load() returned");
 
             int total = 0;
             int withoutTimestamp = 0;
@@ -890,6 +939,7 @@ namespace Sage50Connector.Helpers
             foreach (Payment payment in payments)
             {
                 total++;
+                timer.Tick();
                 if (!HasTimestamp(payment.LastSavedAt))
                 {
                     withoutTimestamp++;
@@ -980,10 +1030,13 @@ namespace Sage50Connector.Helpers
 
             DateTime? after = ParseCutoff(updatedAt);
             DateTime? before = ParseCutoff(updatedBefore);
+            var timer = new ReadTimer("INVOICE_PAYMENTS");
             ReferenceIndex index = BuildReferenceIndex(accounts: true, customers: true, vendors: false);
+            timer.Mark("reference index built");
 
             var receipts = CompanyManager.Instance.CurrentCompany.Factories.ReceiptFactory.List();
             receipts.Load();
+            timer.Mark("Sage Load() returned");
 
             int total = 0;
             int withoutTimestamp = 0;
@@ -992,6 +1045,7 @@ namespace Sage50Connector.Helpers
             foreach (Receipt receipt in receipts)
             {
                 total++;
+                timer.Tick();
                 if (!HasTimestamp(receipt.LastSavedAt))
                 {
                     withoutTimestamp++;

@@ -1832,7 +1832,52 @@ namespace Sage50Connector
 
 
 
+        // A report can carry the result of a Sage load that took hours (4,869
+        // bills took 46 hours on a real customer file, 2026-10-04), and on that
+        // file one DNS blip on the first page's upload crashed the worker before
+        // anything reached Rutter. Ride out a short network outage before giving
+        // up. Reports are
+        // safe to resend: the server upserts each page and the cursor it saves is
+        // the same on every attempt.
+        private const int ReportAttempts = 8;
+
         private static async Task PostToRutterAsync(string jsonString, string AccessKey)
+        {
+            for (int attempt = 1; ; attempt++)
+            {
+                try
+                {
+                    if (await TryPostToRutterAsync(jsonString, AccessKey) || attempt >= ReportAttempts)
+                    {
+                        return;
+                    }
+                }
+                catch (Exception ex) when (
+                    (ex is HttpRequestException || ex is TaskCanceledException)
+                    && attempt < ReportAttempts)
+                {
+                    WriteToFile(DateTime.Now + ": Could not reach Rutter to post a report: " + ex.Message);
+                }
+
+                TimeSpan delay = CalculateRetryDelay(attempt);
+                WriteToFile(
+                    DateTime.Now
+                        + ": Retrying report post (attempt "
+                        + (attempt + 1)
+                        + " of "
+                        + ReportAttempts
+                        + ") in "
+                        + Math.Ceiling(delay.TotalSeconds)
+                        + "s.");
+                await Task.Delay(delay);
+            }
+        }
+
+        /// <summary>
+        /// One report post. True when finished (accepted, or rejected in a way a
+        /// resend will not fix); false on a gateway error worth retrying.
+        /// </summary>
+        private static async Task<bool> TryPostToRutterAsync(string jsonString, string AccessKey)
         {
             using (HttpClient client = new HttpClient())
             {
@@ -1854,11 +1899,12 @@ namespace Sage50Connector
                 {
                     var responseContent = await response.Content.ReadAsStringAsync();
                     WriteToFile(DateTime.Now + $": Failed to post to Rutter. Status code: {(int)response.StatusCode} {response.StatusCode}, Response: {responseContent}");
+                    int status = (int)response.StatusCode;
+                    return status != 502 && status != 503 && status != 504;
                 }
-                else
-                {
-                    WriteToFile(DateTime.Now + $": Successfully posted to Rutter. Status code: {(int)response.StatusCode} {response.StatusCode}");
-                }
+
+                WriteToFile(DateTime.Now + $": Successfully posted to Rutter. Status code: {(int)response.StatusCode} {response.StatusCode}");
+                return true;
             }
         }
 
