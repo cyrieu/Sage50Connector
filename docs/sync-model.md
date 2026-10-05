@@ -69,6 +69,15 @@ longer mixes that cursor with a newly loaded live Sage list. It reports
 clears the job's cursor and page counters, and serves the same bounded job again
 from page one. Unchanged rows already received are content-hash deduplicated.
 
+Report uploads must receive a successful HTTP acknowledgment before a final
+page clears its snapshot or marks the entity synced. Gateway/network failures
+retry up to eight times per cycle; exhausted retries and HTTP rejections retain
+the exact report in memory for the next cycle, without repeating Sage reads or
+writes. A failed upload is not reported as a Sage fetch error. The next job in a
+successful report response is consumed before polling again, because Rutter has
+already claimed it. Company switches clear retained reports and returned jobs.
+This recovery state, like the page snapshot, does not survive a process exit.
+
 The connector always reports every row in the page. Unchanged-row dedupe is left
 to the server upsert (content hash / `platform_id` match). No client-side hash
 cache.

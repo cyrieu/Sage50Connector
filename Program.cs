@@ -570,6 +570,8 @@ namespace Sage50Connector
             AccessKey = null;
             ConnectionId = null;
             Interlocked.Exchange(ref comAuthorizationRetryRequested, 0);
+            pendingReport = null;
+            nextReportedJob = null;
         }
 
         private static ManualResetEventSlim SyncNowSignal;
@@ -871,100 +873,114 @@ namespace Sage50Connector
 
                 WriteToFile("###############################--------####################################################################################");
                 WriteToFile(DateTime.Now + ": Process Started");
-                ResponseObject job = await GetJobFromRutterAsync(AccessKey, cancellationToken);
-
-                if (job != null)
+                try
                 {
-                    consecutivePollFailures = 0;
-                    switch (job.type)
+                    // Finish an unacknowledged report before fetching more work.
+                    // Replay the exact payload, including write results, without
+                    // running Sage mutations or expensive reads again.
+                    ResponseObject job = await GetNextJobAsync(AccessKey, cancellationToken);
+
+                    if (job != null)
                     {
-                        case "LIST_FETCH":
-                            if (job.platform_entity == "TRANSACTIONS"
-                                && !await EnsureComAuthorizationForTransactionsAsync(CompanyName))
-                            {
-                                await ReportUnsupportedJob(
-                                    job,
-                                    AccessKey,
-                                    "Sage transaction access is not approved for this company. "
-                                        + "Open the configured company in Sage 50, approve Rutter transaction access, "
-                                        + "then retry the transaction sync.");
-                                Helpers.SyncStatus.Instance.SetNeedsComAuthorization(
-                                    "Open the configured company in Sage 50 and approve Rutter transaction access, then retry the transaction sync.");
+                        consecutivePollFailures = 0;
+                        switch (job.type)
+                        {
+                            case "LIST_FETCH":
+                                if (job.platform_entity == "TRANSACTIONS"
+                                    && !await EnsureComAuthorizationForTransactionsAsync(CompanyName))
+                                {
+                                    await ReportUnsupportedJob(
+                                        job,
+                                        AccessKey,
+                                        "Sage transaction access is not approved for this company. "
+                                            + "Open the configured company in Sage 50, approve Rutter transaction access, "
+                                            + "then retry the transaction sync.");
+                                    Helpers.SyncStatus.Instance.SetNeedsComAuthorization(
+                                        "Open the configured company in Sage 50 and approve Rutter transaction access, then retry the transaction sync.");
+                                    break;
+                                }
+                                await HandleListFetchJob(job, AccessKey, CompanyName);
                                 break;
-                            }
-                            await HandleListFetchJob(job, AccessKey, CompanyName);
-                            break;
-                        case "CREATE":
-                            if (job.platform_entity == "VENDORS")
-                            {
-                                await HandleCreateVendorJob(job, AccessKey, CompanyName);
-                            }
-                            else
-                            {
+                            case "CREATE":
+                                if (job.platform_entity == "VENDORS")
+                                {
+                                    await HandleCreateVendorJob(job, AccessKey, CompanyName);
+                                }
+                                else
+                                {
+                                    await ReportUnsupportedJob(job, AccessKey,
+                                        "CREATE is not supported for " + job.platform_entity + ".");
+                                }
+                                break;
+
+                            case "ID_FETCH":
+                                await HandleIdFetchJob(job, AccessKey, CompanyName);
+                                break;
+
+                            case "UPDATE":
+                                await HandleUpdateVendorJob(job, AccessKey, CompanyName);
+                                break;
+
+                            case "DELETE":
+                                await HandleDeleteVendorJob(job, AccessKey, CompanyName);
+                                break;
+                            case "NOOP":
+                                WriteToFile(DateTime.Now + ": Received NOOP job, sleeping for 5 minutes.");
+                                // Hand the Sage connection back before going to sleep.
+                                // Sage licenses a limited number of concurrent
+                                // connections, and holding one for five idle minutes
+                                // wastes a seat the customer may need — and turns any
+                                // crash or kill during that window into a leaked seat.
+                                // Reopening costs a few seconds once every 5 minutes.
+                                Helpers.Sage50Connector.Instance.Shutdown();
+                                Helpers.SyncStatus.Instance.SetNothingRequested();
+                                await DelayInterruptible(TimeSpan.FromMinutes(5), cancellationToken);
+                                break;
+                            default:
+                                // Must report, not just log. An unreported job stays
+                                // IN_PROGRESS and Rutter hands it back on every poll
+                                // forever.
                                 await ReportUnsupportedJob(job, AccessKey,
-                                    "CREATE is not supported for " + job.platform_entity + ".");
-                            }
-                            break;
-
-                        case "ID_FETCH":
-                            await HandleIdFetchJob(job, AccessKey, CompanyName);
-                            break;
-
-                        case "UPDATE":
-                            await HandleUpdateVendorJob(job, AccessKey, CompanyName);
-                            break;
-
-                        case "DELETE":
-                            await HandleDeleteVendorJob(job, AccessKey, CompanyName);
-                            break;
-                        case "NOOP":
-                            WriteToFile(DateTime.Now + ": Received NOOP job, sleeping for 5 minutes.");
-                            // Hand the Sage connection back before going to sleep.
-                            // Sage licenses a limited number of concurrent
-                            // connections, and holding one for five idle minutes
-                            // wastes a seat the customer may need — and turns any
-                            // crash or kill during that window into a leaked seat.
-                            // Reopening costs a few seconds once every 5 minutes.
+                                    "Job type '" + job.type + "' is not supported by this connector.");
+                                break;
+                        }
+                    }
+                    else
+                    {
+                        consecutivePollFailures++;
+                        if (consecutivePollFailures == 1)
+                        {
+                            // Do not occupy a limited Sage connection while Rutter or
+                            // the network is offline. The next job handler reconnects.
                             Helpers.Sage50Connector.Instance.Shutdown();
-                            Helpers.SyncStatus.Instance.SetNothingRequested();
-                            await DelayInterruptible(TimeSpan.FromMinutes(5), cancellationToken);
-                            break;
-                        default:
-                            // Must report, not just log. An unreported job stays
-                            // IN_PROGRESS and Rutter hands it back on every poll
-                            // forever.
-                            await ReportUnsupportedJob(job, AccessKey,
-                                "Job type '" + job.type + "' is not supported by this connector.");
-                            break;
+                        }
+
+                        TimeSpan backoff = CalculateRetryDelay(consecutivePollFailures);
+                        double retrySeconds = Math.Ceiling(backoff.TotalSeconds);
+                        Helpers.SyncStatus.Instance.SetOffline(
+                            "Cannot reach Rutter. Retry "
+                                + consecutivePollFailures
+                                + " in "
+                                + retrySeconds
+                                + " seconds…");
+                        WriteToFile(
+                            DateTime.Now
+                                + ": Poll failed ("
+                                + consecutivePollFailures
+                                + "); retrying in "
+                                + retrySeconds
+                                + "s."
+                        );
+                        await DelayInterruptible(backoff, cancellationToken);
                     }
                 }
-                else
+                catch (ReportDeliveryException ex)
                 {
                     consecutivePollFailures++;
-                    if (consecutivePollFailures == 1)
-                    {
-                        // Do not occupy a limited Sage connection while Rutter or
-                        // the network is offline. The next job handler reconnects.
-                        Helpers.Sage50Connector.Instance.Shutdown();
-                    }
-
-                    TimeSpan backoff = CalculateRetryDelay(consecutivePollFailures);
-                    double retrySeconds = Math.Ceiling(backoff.TotalSeconds);
-                    Helpers.SyncStatus.Instance.SetOffline(
-                        "Cannot reach Rutter. Retry "
-                            + consecutivePollFailures
-                            + " in "
-                            + retrySeconds
-                            + " seconds…");
-                    WriteToFile(
-                        DateTime.Now
-                            + ": Poll failed ("
-                            + consecutivePollFailures
-                            + "); retrying in "
-                            + retrySeconds
-                            + "s."
-                    );
-                    await DelayInterruptible(backoff, cancellationToken);
+                    Helpers.Sage50Connector.Instance.Shutdown();
+                    Helpers.SyncStatus.Instance.SetOffline("Report not acknowledged by Rutter. Retrying without reloading Sage…");
+                    WriteToFile(DateTime.Now + ": Report delivery failed; retaining the report and Sage snapshot: " + ex.Message);
+                    await DelayInterruptible(CalculateRetryDelay(consecutivePollFailures), cancellationToken);
                 }
                 WriteToFile(DateTime.Now + ": Process Ended.");
                 WriteToFile("###################################################################################################################");
@@ -1126,6 +1142,14 @@ namespace Sage50Connector
             }
         }
 
+        private static async Task<ResponseObject> GetNextJobAsync(
+            string accessKey, CancellationToken cancellationToken)
+        {
+            if (pendingReport != null)
+                await PostReportAsync(pendingReport.Json, accessKey, pendingReport.OnAccepted);
+            return TakeReportedJob() ?? await GetJobFromRutterAsync(accessKey, cancellationToken);
+        }
+
         private static async Task<ResponseObject> GetJobFromRutterAsync(
             string AccessKey,
             CancellationToken cancellationToken)
@@ -1278,15 +1302,16 @@ namespace Sage50Connector
                 }
 
                 string jsonString = JsonConvert.SerializeObject(responseObject, jsonSettings);
-                await PostToRutterAsync(jsonString, AccessKey);
-
-                if (nextCursor == null)
+                await PostReportAsync(jsonString, AccessKey, () =>
                 {
-                    Helpers.SyncStatus.Instance.SetEntitySynced(job.platform_entity, allRecords.Count);
-                    JobFetchCache.Remove(job.job_id, job.platform_entity);
-                }
+                    if (nextCursor == null)
+                    {
+                        Helpers.SyncStatus.Instance.SetEntitySynced(job.platform_entity, allRecords.Count);
+                        JobFetchCache.Remove(job.job_id, job.platform_entity);
+                    }
+                });
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!(ex is ReportDeliveryException))
             {
                 // "Authorization result = Pending" is not a crash, it is a person
                 // needing to click something in Sage. Say so plainly.
@@ -1621,7 +1646,7 @@ namespace Sage50Connector
 
                 Helpers.SyncStatus.Instance.SetEntitySynced(job.platform_entity, data.Count);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!(ex is ReportDeliveryException))
             {
                 await ReportJobError(job, AccessKey, ex);
             }
@@ -1672,7 +1697,7 @@ namespace Sage50Connector
 
                 Helpers.SyncStatus.Instance.SetEntitySynced(job.platform_entity, 1);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!(ex is ReportDeliveryException))
             {
                 await ReportJobError(job, AccessKey, ex);
             }
@@ -1712,7 +1737,7 @@ namespace Sage50Connector
                     platform_id = platformId,
                 }), AccessKey);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!(ex is ReportDeliveryException))
             {
                 await ReportJobError(job, AccessKey, ex);
             }
@@ -1806,7 +1831,7 @@ namespace Sage50Connector
                     WriteToFile(DateTime.Now + ": Failed to create vendor in Sage 50.");
                 }
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!(ex is ReportDeliveryException))
             {
                 WriteToFile(DateTime.Now + ": Error handling CREATE job for VENDORS. Error: " + ex.Message);
                 var errorObject = new
@@ -1841,70 +1866,103 @@ namespace Sage50Connector
         // the same on every attempt.
         private const int ReportAttempts = 8;
 
-        private static async Task PostToRutterAsync(string jsonString, string AccessKey)
+        private sealed class ReportDeliveryException : Exception
         {
-            for (int attempt = 1; ; attempt++)
+            public ReportDeliveryException(string message, Exception inner = null) : base(message, inner) { }
+        }
+
+        private sealed class PendingReport
+        {
+            public string Json;
+            public Action OnAccepted;
+        }
+
+        // Worker-owned, process-local state. Company switches clear both along
+        // with the Sage snapshot; worker restarts retain them.
+        private static PendingReport pendingReport;
+        private static ResponseObject nextReportedJob;
+
+        private static ResponseObject TakeReportedJob()
+        {
+            return Interlocked.Exchange(ref nextReportedJob, null);
+        }
+
+        private static Task PostToRutterAsync(string jsonString, string AccessKey)
+        {
+            return PostReportAsync(jsonString, AccessKey, null);
+        }
+
+        private static async Task PostReportAsync(string jsonString, string accessKey, Action onAccepted)
+        {
+            pendingReport = new PendingReport { Json = jsonString, OnAccepted = onAccepted };
+            for (int attempt = 1; attempt <= ReportAttempts; attempt++)
             {
                 try
                 {
-                    if (await TryPostToRutterAsync(jsonString, AccessKey) || attempt >= ReportAttempts)
+                    if (await TryPostToRutterAsync(jsonString, accessKey))
                     {
+                        pendingReport = null;
+                        onAccepted?.Invoke();
                         return;
                     }
                 }
-                catch (Exception ex) when (
-                    (ex is HttpRequestException || ex is TaskCanceledException)
-                    && attempt < ReportAttempts)
+                catch (Exception ex) when (ex is HttpRequestException || ex is TaskCanceledException)
                 {
                     WriteToFile(DateTime.Now + ": Could not reach Rutter to post a report: " + ex.Message);
+                    if (attempt == ReportAttempts)
+                        throw new ReportDeliveryException("Report upload exhausted its retries.", ex);
                 }
 
+                if (attempt == ReportAttempts)
+                    throw new ReportDeliveryException("Report upload exhausted its retries without acknowledgment.");
+
                 TimeSpan delay = CalculateRetryDelay(attempt);
-                WriteToFile(
-                    DateTime.Now
-                        + ": Retrying report post (attempt "
-                        + (attempt + 1)
-                        + " of "
-                        + ReportAttempts
-                        + ") in "
-                        + Math.Ceiling(delay.TotalSeconds)
-                        + "s.");
+                WriteToFile(DateTime.Now + ": Retrying report post (attempt " + (attempt + 1)
+                    + " of " + ReportAttempts + ") in " + Math.Ceiling(delay.TotalSeconds) + "s.");
                 await Task.Delay(delay);
             }
         }
 
-        /// <summary>
-        /// One report post. True when finished (accepted, or rejected in a way a
-        /// resend will not fix); false on a gateway error worth retrying.
-        /// </summary>
+        /// <summary>Only a successful HTTP response acknowledges a report.</summary>
         private static async Task<bool> TryPostToRutterAsync(string jsonString, string AccessKey)
         {
             using (HttpClient client = new HttpClient())
+            using (var request = new HttpRequestMessage(HttpMethod.Post, Config.IngestUrl))
             {
-                var request = new HttpRequestMessage(HttpMethod.Post, Config.IngestUrl);
                 request.Headers.Add(ConnectionProbe.IngestVersionHeaderName, ConnectionProbe.IngestVersion);
                 request.Headers.Add("Authorization", $"Bearer {AccessKey}");
                 request.Content = new StringContent(jsonString, Encoding.UTF8, "application/json");
 
-                var response = await client.SendAsync(request);
-
-                // Always log the status, on both branches. On 2026-08-03 a run
-                // logged 39 "Successfully posted to Rutter." while ngrok recorded
-                // an HTTP 500 for every one of those reports — the long-standing
-                // "Unexplained" entry in CLAUDE.md, reproduced. This code reads
-                // correct, so the next occurrence needs the status code in the log
-                // to say whether the connector is mis-reporting or genuinely
-                // receiving 2xx. Do not remove the code in either message.
-                if (!response.IsSuccessStatusCode)
+                using (var response = await client.SendAsync(request))
                 {
                     var responseContent = await response.Content.ReadAsStringAsync();
-                    WriteToFile(DateTime.Now + $": Failed to post to Rutter. Status code: {(int)response.StatusCode} {response.StatusCode}, Response: {responseContent}");
-                    int status = (int)response.StatusCode;
-                    return status != 502 && status != 503 && status != 504;
-                }
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        int status = (int)response.StatusCode;
+                        WriteToFile(DateTime.Now + $": Failed to post to Rutter. Status code: {status} {response.StatusCode}");
+                        if (status == 502 || status == 503 || status == 504)
+                            return false;
+                        throw new ReportDeliveryException("Rutter rejected report with HTTP " + status + ".");
+                    }
 
-                WriteToFile(DateTime.Now + $": Successfully posted to Rutter. Status code: {(int)response.StatusCode} {response.StatusCode}");
-                return true;
+                    // Reports and polls have the same response contract. The
+                    // server already claimed this job: service it before polling
+                    // again, otherwise another enqueued job can hide it.
+                    try
+                    {
+                        var nextJob = JsonConvert.DeserializeObject<ResponseObject>(responseContent);
+                        if (!string.IsNullOrEmpty(nextJob?.type))
+                            nextReportedJob = nextJob;
+                    }
+                    catch (JsonException ex)
+                    {
+                        // The report was acknowledged. Do not resend an accepted
+                        // write because a proxy supplied a malformed response body.
+                        WriteToFile(DateTime.Now + ": Accepted report had an invalid job response; polling again: " + ex.Message);
+                    }
+                    WriteToFile(DateTime.Now + $": Successfully posted to Rutter. Status code: {(int)response.StatusCode} {response.StatusCode}");
+                    return true;
+                }
             }
         }
 
