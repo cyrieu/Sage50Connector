@@ -157,7 +157,7 @@ namespace Sage50Connector.Diagnostics
                 foreach (bool items in new[] { false, true })
                 {
                     var timer = Stopwatch.StartNew();
-                    var index = Helpers.Sage50Repository.Instance.GetType().GetMethod("BuildReferenceIndex", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(Helpers.Sage50Repository.Instance, new object[] { true, factory == "SalesInvoiceFactory", factory == "PurchaseInvoiceFactory", items });
+                    var index = Helpers.Sage50Repository.Instance.GetType().GetMethod("BuildReferenceIndex", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(Helpers.Sage50Repository.Instance, new object[] { true, factory == "SalesInvoiceFactory", factory == "PurchaseInvoiceFactory", items, null });
                     Observe(new { factory, scenario = "reference-index", inventoryItems = items, milliseconds = timer.Elapsed.TotalMilliseconds, count = Property(index, "Count") });
                 }
                 var timerDto = Stopwatch.StartNew();

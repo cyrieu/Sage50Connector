@@ -97,7 +97,7 @@ namespace Sage50Connector.Helpers
             }
             else
             {
-                
+
                 return "Error: There are no companies with that name";
             }
         }
@@ -267,31 +267,95 @@ namespace Sage50Connector.Helpers
         /// "Resolved company" and the result, so it was impossible to tell a slow
         /// Load() from slow per-record line access. These lines answer that.
         /// </summary>
-        private sealed class ReadTimer
+        private sealed class ReadTimer : IDisposable
         {
             private const int TickEvery = 250;
             private readonly string m_entity;
+            private readonly object m_lock = new object();
             private readonly System.Diagnostics.Stopwatch m_watch = System.Diagnostics.Stopwatch.StartNew();
+            private readonly System.Threading.Timer m_heartbeat;
+            private string m_phase = "starting read";
+            private double m_phaseStarted;
             private int m_records;
+            private bool m_disposed;
+            private bool m_completed;
 
             public ReadTimer(string entity)
             {
                 m_entity = entity;
+                Mark("read started");
+                // Only inspect our counters here. Never call the Sage SDK from this thread.
+                m_heartbeat = new System.Threading.Timer(_ => Heartbeat(), null, 60000, 60000);
+            }
+
+            private void Log(string message)
+            {
+                // Diagnostic failures must not fail a fetch or crash a timer thread.
+                try
+                {
+                    global::Sage50Connector.Program.WriteToFile(m_entity + ": " + message
+                        + " at " + m_watch.Elapsed.TotalSeconds.ToString("F1") + "s.");
+                }
+                catch { }
+            }
+
+            private void Heartbeat()
+            {
+                lock (m_lock)
+                {
+                    if (m_disposed) return;
+                    Log("still reading; phase=" + m_phase + "; record=" + m_records
+                        + "; phaseElapsed=" + (m_watch.Elapsed.TotalSeconds - m_phaseStarted).ToString("F1") + "s");
+                }
+            }
+
+            public void Stage(string phase)
+            {
+                lock (m_lock)
+                {
+                    double elapsed = m_watch.Elapsed.TotalSeconds - m_phaseStarted;
+                    if (elapsed >= 5)
+                        Log("slow phase=" + m_phase + "; record=" + m_records + "; duration=" + elapsed.ToString("F1") + "s");
+                    m_phase = phase;
+                    m_phaseStarted = m_watch.Elapsed.TotalSeconds;
+                }
             }
 
             public void Mark(string step)
             {
-                global::Sage50Connector.Program.WriteToFile(
-                    m_entity + ": " + step + " at " + m_watch.Elapsed.TotalSeconds.ToString("F1") + "s.");
+                lock (m_lock) { Log(step); }
             }
 
             public void Tick()
             {
-                m_records++;
-                if (m_records % TickEvery == 0)
+                lock (m_lock)
                 {
-                    Mark("read " + m_records + " records");
+                    m_records++;
+                    if (m_records == 1 || m_records % TickEvery == 0)
+                        Log("reached record " + m_records);
                 }
+                Stage("record header and modified-window filter");
+            }
+
+            public void Complete(int returned)
+            {
+                Stage("read complete");
+                lock (m_lock)
+                {
+                    m_completed = true;
+                    Log("read complete; scanned=" + m_records + "; returned=" + returned);
+                }
+            }
+
+            public void Dispose()
+            {
+                lock (m_lock)
+                {
+                    if (!m_completed)
+                        Log("read exited before completion; phase=" + m_phase + "; record=" + m_records);
+                    m_disposed = true;
+                }
+                m_heartbeat.Dispose();
             }
         }
 
@@ -359,52 +423,80 @@ namespace Sage50Connector.Helpers
         /// them by key. Only what a given entity needs is loaded — a journal entry
         /// never names a customer.
         /// </summary>
-        private ReferenceIndex BuildReferenceIndex(bool accounts, bool customers, bool vendors, bool inventoryItems = false)
+        private ReferenceIndex BuildReferenceIndex(bool accounts, bool customers, bool vendors, bool inventoryItems = false, ReadTimer timer = null)
         {
             var index = new ReferenceIndex();
             var factories = CompanyManager.Instance.CurrentCompany.Factories;
 
             if (accounts)
             {
+                timer?.Stage("Account lookup Load()");
+                timer?.Mark("Account lookup Load() starting");
                 var list = factories.AccountFactory.List();
                 list.Load();
+                timer?.Mark("Account lookup Load() returned");
+                timer?.Stage("Account lookup enumeration");
+                int count = 0;
                 foreach (Account account in list)
                 {
+                    count++;
                     index.Add(account.Key, account.ID);
                 }
+                timer?.Mark("Account lookup enumeration complete; rows=" + count);
             }
 
             if (customers)
             {
+                timer?.Stage("Customer lookup Load()");
+                timer?.Mark("Customer lookup Load() starting");
                 var list = factories.CustomerFactory.List();
                 list.Load();
+                timer?.Mark("Customer lookup Load() returned");
+                timer?.Stage("Customer lookup enumeration");
+                int count = 0;
                 foreach (Customer customer in list)
                 {
+                    count++;
                     index.Add(customer.Key, customer.ID);
                 }
+                timer?.Mark("Customer lookup enumeration complete; rows=" + count);
             }
 
             if (vendors)
             {
+                timer?.Stage("Vendor lookup Load()");
+                timer?.Mark("Vendor lookup Load() starting");
                 var list = factories.VendorFactory.List();
                 list.Load();
+                timer?.Mark("Vendor lookup Load() returned");
+                timer?.Stage("Vendor lookup enumeration");
+                int count = 0;
                 foreach (Vendor vendor in list)
                 {
+                    count++;
                     index.Add(vendor.Key, vendor.ID);
                 }
+                timer?.Mark("Vendor lookup enumeration complete; rows=" + count);
             }
 
             if (inventoryItems)
             {
+                timer?.Stage("InventoryItem lookup Load()");
+                timer?.Mark("InventoryItem lookup Load() starting");
                 var list = factories.InventoryItemFactory.List();
                 list.Load();
+                timer?.Mark("InventoryItem lookup Load() returned");
+                timer?.Stage("InventoryItem lookup enumeration");
+                int count = 0;
                 foreach (var item in list)
                 {
+                    count++;
                     object key = Property(item, "Key");
                     object id = Property(item, "ID");
                     EntityReference reference = key as EntityReference;
                     index.Add(reference, id == null ? null : id.ToString());
                 }
+                timer?.Mark("InventoryItem lookup enumeration complete; rows=" + count);
             }
 
             return index;
@@ -636,54 +728,63 @@ namespace Sage50Connector.Helpers
 
             DateTime? after = ParseCutoff(updatedAt);
             DateTime? before = ParseCutoff(updatedBefore);
-            var timer = new ReadTimer("JOURNAL_ENTRIES");
-            ReferenceIndex index = BuildReferenceIndex(accounts: true, customers: false, vendors: false);
-            timer.Mark("reference index built");
-
-            var entries = CompanyManager.Instance.CurrentCompany.Factories.GeneralJournalEntryFactory.List();
-            entries.Load();
-            timer.Mark("Sage Load() returned");
-
-            int total = 0;
-            int withoutTimestamp = 0;
-            foreach (GeneralJournalEntry entry in entries)
+            using (var timer = new ReadTimer("JOURNAL_ENTRIES"))
             {
-                total++;
-                timer.Tick();
-                if (!HasTimestamp(entry.LastSavedAt))
-                {
-                    withoutTimestamp++;
-                }
-                if (!InModifiedWindow(entry.LastSavedAt, after, before, includeMissingTimestamps))
-                {
-                    continue;
-                }
+                ReferenceIndex index = BuildReferenceIndex(accounts: true, customers: false, vendors: false, timer: timer);
+                timer.Mark("reference index built");
+                timer.Stage("transaction Load()");
+                timer.Mark("Sage Load() starting");
 
-                var body = new JournalEntryBody
-                {
-                    IsReversingTransaction = entry.IsReversingTransaction,
-                    PartnerGuid = ReferenceIndex.GuidOf(entry.PartnerReference),
-                };
-                MapTransactionHeader(body, entry, index);
+                var entries = CompanyManager.Instance.CurrentCompany.Factories.GeneralJournalEntryFactory.List();
+                entries.Load();
+                timer.Mark("Sage Load() returned");
+                timer.Stage("transaction enumeration MoveNext()");
 
-                if (entry.GeneralJournalEntryLines != null)
+                int total = 0;
+                int withoutTimestamp = 0;
+                foreach (GeneralJournalEntry entry in entries)
                 {
-                    foreach (GeneralJournalEntryLine line in entry.GeneralJournalEntryLines)
+                    total++;
+                    timer.Tick();
+                    if (!HasTimestamp(entry.LastSavedAt))
                     {
-                        if (!IsRealLine(line))
-                        {
-                            continue;
-                        }
-                        body.Lines.Add(MakeBaseLine<JournalEntryLineBody>(
-                            line, "journal", line.JobReference, index));
+                        withoutTimestamp++;
                     }
+                    if (!InModifiedWindow(entry.LastSavedAt, after, before, includeMissingTimestamps))
+                    {
+                        timer.Stage("transaction enumeration MoveNext()");
+                        continue;
+                    }
+
+                    var body = new JournalEntryBody
+                    {
+                        IsReversingTransaction = entry.IsReversingTransaction,
+                        PartnerGuid = ReferenceIndex.GuidOf(entry.PartnerReference),
+                    };
+                    MapTransactionHeader(body, entry, index);
+
+                    timer.Stage("lines GeneralJournalEntryLines");
+                    if (entry.GeneralJournalEntryLines != null)
+                    {
+                        foreach (GeneralJournalEntryLine line in entry.GeneralJournalEntryLines)
+                        {
+                            if (!IsRealLine(line))
+                            {
+                                continue;
+                            }
+                            body.Lines.Add(MakeBaseLine<JournalEntryLineBody>(
+                                line, "journal", line.JobReference, index));
+                        }
+                    }
+
+                    results.Add(body);
+                    timer.Stage("transaction enumeration MoveNext()");
                 }
 
-                results.Add(body);
+                LogFilterOutcome("JOURNAL_ENTRIES", total, withoutTimestamp, results.Count, after, before, includeMissingTimestamps);
+                timer.Complete(results.Count);
+                return results;
             }
-
-            LogFilterOutcome("JOURNAL_ENTRIES", total, withoutTimestamp, results.Count, after, before, includeMissingTimestamps);
-            return results;
         }
 
         /// <summary>Sales invoices — accounts receivable.</summary>
@@ -702,107 +803,119 @@ namespace Sage50Connector.Helpers
 
             DateTime? after = ParseCutoff(updatedAt);
             DateTime? before = ParseCutoff(updatedBefore);
-            var timer = new ReadTimer("INVOICES");
-            ReferenceIndex index = BuildReferenceIndex(accounts: true, customers: true, vendors: false, inventoryItems: true);
-            timer.Mark("reference index built");
-
-            var invoices = CompanyManager.Instance.CurrentCompany.Factories.SalesInvoiceFactory.List();
-            invoices.Load();
-            timer.Mark("Sage Load() returned");
-
-            int total = 0;
-            int withoutTimestamp = 0;
-            foreach (SalesInvoice invoice in invoices)
+            using (var timer = new ReadTimer("INVOICES"))
             {
-                total++;
-                timer.Tick();
-                if (!HasTimestamp(invoice.LastSavedAt))
-                {
-                    withoutTimestamp++;
-                }
-                if (!InModifiedWindow(invoice.LastSavedAt, after, before, includeMissingTimestamps))
-                {
-                    continue;
-                }
+                ReferenceIndex index = BuildReferenceIndex(accounts: true, customers: true, vendors: false, inventoryItems: true, timer: timer);
+                timer.Mark("reference index built");
+                timer.Stage("transaction Load()");
+                timer.Mark("Sage Load() starting");
 
-                var body = new InvoiceBody
-                {
-                    CustomerID = index.Resolve(invoice.CustomerReference),
-                    AmountDue = invoice.AmountDue,
-                    DateDue = DateOnly(invoice.DateDue),
-                    DiscountAmount = invoice.DiscountAmount,
-                    DiscountDate = DateOnly(invoice.DiscountDate),
-                    FreightAmount = invoice.FreightAmount,
-                    SalesTaxAmount = invoice.SalesTaxAmount,
-                    CustomerPurchaseOrderNumber = invoice.CustomerPurchaseOrderNumber,
-                    TermsDescription = invoice.TermsDescription,
-                    ShipDate = DateOnly(invoice.ShipDate),
-                    ShipVia = invoice.ShipVia,
-                    DropShip = invoice.DropShip,
-                    CustomerNote = invoice.CustomerNote,
-                    InternalNote = invoice.InternalNote,
-                    StatementNote = invoice.StatementNote,
-                    FreightAccountID = index.Resolve(invoice.FreightAccountReference),
-                    SalesRepresentativeGuid = ReferenceIndex.GuidOf(invoice.SalesRepresentativeReference),
-                    SalesTaxCodeGuid = ReferenceIndex.GuidOf(invoice.SalesTaxCodeReference),
-                    ShipToAddress = MapAddress(invoice.ShipToAddress),
-                };
-                MapTransactionHeader(body, invoice, index);
+                var invoices = CompanyManager.Instance.CurrentCompany.Factories.SalesInvoiceFactory.List();
+                invoices.Load();
+                timer.Mark("Sage Load() returned");
+                timer.Stage("transaction enumeration MoveNext()");
 
-                // An invoice's lines live in whichever collection matches what it
-                // was raised from, so all four are read and merged. Reading only
-                // ApplyToSalesLines silently lost every line of the invoices
-                // raised from sales orders.
-                if (invoice.ApplyToSalesLines != null)
+                int total = 0;
+                int withoutTimestamp = 0;
+                foreach (SalesInvoice invoice in invoices)
                 {
-                    foreach (SalesInvoiceSalesLine line in invoice.ApplyToSalesLines)
+                    total++;
+                    timer.Tick();
+                    if (!HasTimestamp(invoice.LastSavedAt))
                     {
-                        if (!IsRealLine(line)) { continue; }
-                        body.Lines.Add(MakeItemLine<InvoiceLineBody>(
-                            line, "sales", line.Quantity, line.UnitPrice,
-                            line.InventoryItemReference, line.JobReference, index));
+                        withoutTimestamp++;
                     }
-                }
-
-                if (invoice.ApplyToSalesOrderLines != null)
-                {
-                    foreach (SalesInvoiceSalesOrderLine line in invoice.ApplyToSalesOrderLines)
+                    if (!InModifiedWindow(invoice.LastSavedAt, after, before, includeMissingTimestamps))
                     {
-                        if (!IsRealLine(line)) { continue; }
-                        body.Lines.Add(MakeItemLine<InvoiceLineBody>(
-                            line, "salesOrder", line.Quantity, line.UnitPrice,
-                            line.InventoryItemReference, line.JobReference, index));
+                        timer.Stage("transaction enumeration MoveNext()");
+                        continue;
                     }
-                }
 
-                if (invoice.ApplyToProposalLines != null)
-                {
-                    foreach (SalesInvoiceProposalLine line in invoice.ApplyToProposalLines)
+                    var body = new InvoiceBody
                     {
-                        if (!IsRealLine(line)) { continue; }
-                        body.Lines.Add(MakeItemLine<InvoiceLineBody>(
-                            line, "proposal", line.Quantity, line.UnitPrice,
-                            line.InventoryItemReference, line.JobReference, index));
-                    }
-                }
+                        CustomerID = index.Resolve(invoice.CustomerReference),
+                        AmountDue = invoice.AmountDue,
+                        DateDue = DateOnly(invoice.DateDue),
+                        DiscountAmount = invoice.DiscountAmount,
+                        DiscountDate = DateOnly(invoice.DiscountDate),
+                        FreightAmount = invoice.FreightAmount,
+                        SalesTaxAmount = invoice.SalesTaxAmount,
+                        CustomerPurchaseOrderNumber = invoice.CustomerPurchaseOrderNumber,
+                        TermsDescription = invoice.TermsDescription,
+                        ShipDate = DateOnly(invoice.ShipDate),
+                        ShipVia = invoice.ShipVia,
+                        DropShip = invoice.DropShip,
+                        CustomerNote = invoice.CustomerNote,
+                        InternalNote = invoice.InternalNote,
+                        StatementNote = invoice.StatementNote,
+                        FreightAccountID = index.Resolve(invoice.FreightAccountReference),
+                        SalesRepresentativeGuid = ReferenceIndex.GuidOf(invoice.SalesRepresentativeReference),
+                        SalesTaxCodeGuid = ReferenceIndex.GuidOf(invoice.SalesTaxCodeReference),
+                        ShipToAddress = MapAddress(invoice.ShipToAddress),
+                    };
+                    MapTransactionHeader(body, invoice, index);
 
-                // Retainage is money withheld, not a sale, and Sage gives these
-                // lines no quantity, price or item at all.
-                if (invoice.WithholdRetainageLines != null)
-                {
-                    foreach (SalesInvoiceRetainageLine line in invoice.WithholdRetainageLines)
+                    // An invoice's lines live in whichever collection matches what it
+                    // was raised from, so all four are read and merged. Reading only
+                    // ApplyToSalesLines silently lost every line of the invoices
+                    // raised from sales orders.
+                    timer.Stage("lines ApplyToSalesLines");
+                    if (invoice.ApplyToSalesLines != null)
                     {
-                        if (!IsRealLine(line)) { continue; }
-                        body.Lines.Add(MakeBaseLine<InvoiceLineBody>(
-                            line, "retainage", line.JobReference, index));
+                        foreach (SalesInvoiceSalesLine line in invoice.ApplyToSalesLines)
+                        {
+                            if (!IsRealLine(line)) { continue; }
+                            body.Lines.Add(MakeItemLine<InvoiceLineBody>(
+                                line, "sales", line.Quantity, line.UnitPrice,
+                                line.InventoryItemReference, line.JobReference, index));
+                        }
                     }
+
+                    timer.Stage("lines ApplyToSalesOrderLines");
+                    if (invoice.ApplyToSalesOrderLines != null)
+                    {
+                        foreach (SalesInvoiceSalesOrderLine line in invoice.ApplyToSalesOrderLines)
+                        {
+                            if (!IsRealLine(line)) { continue; }
+                            body.Lines.Add(MakeItemLine<InvoiceLineBody>(
+                                line, "salesOrder", line.Quantity, line.UnitPrice,
+                                line.InventoryItemReference, line.JobReference, index));
+                        }
+                    }
+
+                    timer.Stage("lines ApplyToProposalLines");
+                    if (invoice.ApplyToProposalLines != null)
+                    {
+                        foreach (SalesInvoiceProposalLine line in invoice.ApplyToProposalLines)
+                        {
+                            if (!IsRealLine(line)) { continue; }
+                            body.Lines.Add(MakeItemLine<InvoiceLineBody>(
+                                line, "proposal", line.Quantity, line.UnitPrice,
+                                line.InventoryItemReference, line.JobReference, index));
+                        }
+                    }
+
+                    // Retainage is money withheld, not a sale, and Sage gives these
+                    // lines no quantity, price or item at all.
+                    timer.Stage("lines WithholdRetainageLines");
+                    if (invoice.WithholdRetainageLines != null)
+                    {
+                        foreach (SalesInvoiceRetainageLine line in invoice.WithholdRetainageLines)
+                        {
+                            if (!IsRealLine(line)) { continue; }
+                            body.Lines.Add(MakeBaseLine<InvoiceLineBody>(
+                                line, "retainage", line.JobReference, index));
+                        }
+                    }
+
+                    results.Add(body);
+                    timer.Stage("transaction enumeration MoveNext()");
                 }
 
-                results.Add(body);
+                LogFilterOutcome("INVOICES", total, withoutTimestamp, results.Count, after, before, includeMissingTimestamps);
+                timer.Complete(results.Count);
+                return results;
             }
-
-            LogFilterOutcome("INVOICES", total, withoutTimestamp, results.Count, after, before, includeMissingTimestamps);
-            return results;
         }
 
         /// <summary>Purchase invoices — accounts payable.</summary>
@@ -821,87 +934,98 @@ namespace Sage50Connector.Helpers
 
             DateTime? after = ParseCutoff(updatedAt);
             DateTime? before = ParseCutoff(updatedBefore);
-            var timer = new ReadTimer("BILLS");
-            ReferenceIndex index = BuildReferenceIndex(accounts: true, customers: false, vendors: true, inventoryItems: true);
-            timer.Mark("reference index built");
-
-            var bills = CompanyManager.Instance.CurrentCompany.Factories.PurchaseInvoiceFactory.List();
-            bills.Load();
-            timer.Mark("Sage Load() returned");
-
-            int total = 0;
-            int withoutTimestamp = 0;
-            foreach (PurchaseInvoice bill in bills)
+            using (var timer = new ReadTimer("BILLS"))
             {
-                total++;
-                timer.Tick();
-                if (!HasTimestamp(bill.LastSavedAt))
-                {
-                    withoutTimestamp++;
-                }
-                if (!InModifiedWindow(bill.LastSavedAt, after, before, includeMissingTimestamps))
-                {
-                    continue;
-                }
+                ReferenceIndex index = BuildReferenceIndex(accounts: true, customers: false, vendors: true, inventoryItems: true, timer: timer);
+                timer.Mark("reference index built");
+                timer.Stage("transaction Load()");
+                timer.Mark("Sage Load() starting");
 
-                var body = new BillBody
-                {
-                    VendorID = index.Resolve(bill.VendorReference),
-                    AmountDue = bill.AmountDue,
-                    DateDue = DateOnly(bill.DateDue),
-                    DiscountAmount = bill.DiscountAmount,
-                    DiscountDate = DateOnly(bill.DiscountDate),
-                    CustomerSalesOrderNumber = bill.CustomerSalesOrderNumber,
-                    TermsDescription = bill.TermsDescription,
-                    ShipVia = bill.ShipVia,
-                    DropShip = bill.DropShip,
-                    VendorNote = bill.VendorNote,
-                    InternalNote = bill.InternalNote,
-                    WaitingForBill = bill.WaitingForBill,
-                    ShipToAddress = MapAddress(bill.ShipToAddress),
-                };
-                MapTransactionHeader(body, bill, index);
+                var bills = CompanyManager.Instance.CurrentCompany.Factories.PurchaseInvoiceFactory.List();
+                bills.Load();
+                timer.Mark("Sage Load() returned");
+                timer.Stage("transaction enumeration MoveNext()");
 
-                // Same split as invoices: a bill entered directly keeps its lines
-                // in ApplyToPurchasesLines, one raised from a purchase order in
-                // ApplyToOrderLines.
-                if (bill.ApplyToPurchasesLines != null)
+                int total = 0;
+                int withoutTimestamp = 0;
+                foreach (PurchaseInvoice bill in bills)
                 {
-                    foreach (PurchaseInvoicePurchasesLine line in bill.ApplyToPurchasesLines)
+                    total++;
+                    timer.Tick();
+                    if (!HasTimestamp(bill.LastSavedAt))
                     {
-                        if (!IsRealLine(line)) { continue; }
-                        body.Lines.Add(MakeItemLine<BillLineBody>(
-                            line, "purchases", line.Quantity, line.UnitPrice,
-                            line.InventoryItemReference, line.JobReference, index));
+                        withoutTimestamp++;
                     }
-                }
-
-                if (bill.ApplyToOrderLines != null)
-                {
-                    foreach (PurchaseInvoiceOrderLine line in bill.ApplyToOrderLines)
+                    if (!InModifiedWindow(bill.LastSavedAt, after, before, includeMissingTimestamps))
                     {
-                        if (!IsRealLine(line)) { continue; }
-                        body.Lines.Add(MakeItemLine<BillLineBody>(
-                            line, "purchaseOrder", line.Quantity, line.UnitPrice,
-                            line.InventoryItemReference, line.JobReference, index));
+                        timer.Stage("transaction enumeration MoveNext()");
+                        continue;
                     }
-                }
 
-                if (bill.WithholdRetainageLines != null)
-                {
-                    foreach (PurchaseInvoiceRetainageLine line in bill.WithholdRetainageLines)
+                    var body = new BillBody
                     {
-                        if (!IsRealLine(line)) { continue; }
-                        body.Lines.Add(MakeBaseLine<BillLineBody>(
-                            line, "retainage", line.JobReference, index));
+                        VendorID = index.Resolve(bill.VendorReference),
+                        AmountDue = bill.AmountDue,
+                        DateDue = DateOnly(bill.DateDue),
+                        DiscountAmount = bill.DiscountAmount,
+                        DiscountDate = DateOnly(bill.DiscountDate),
+                        CustomerSalesOrderNumber = bill.CustomerSalesOrderNumber,
+                        TermsDescription = bill.TermsDescription,
+                        ShipVia = bill.ShipVia,
+                        DropShip = bill.DropShip,
+                        VendorNote = bill.VendorNote,
+                        InternalNote = bill.InternalNote,
+                        WaitingForBill = bill.WaitingForBill,
+                        ShipToAddress = MapAddress(bill.ShipToAddress),
+                    };
+                    MapTransactionHeader(body, bill, index);
+
+                    // Same split as invoices: a bill entered directly keeps its lines
+                    // in ApplyToPurchasesLines, one raised from a purchase order in
+                    // ApplyToOrderLines.
+                    timer.Stage("lines ApplyToPurchasesLines");
+                    if (bill.ApplyToPurchasesLines != null)
+                    {
+                        foreach (PurchaseInvoicePurchasesLine line in bill.ApplyToPurchasesLines)
+                        {
+                            if (!IsRealLine(line)) { continue; }
+                            body.Lines.Add(MakeItemLine<BillLineBody>(
+                                line, "purchases", line.Quantity, line.UnitPrice,
+                                line.InventoryItemReference, line.JobReference, index));
+                        }
                     }
+
+                    timer.Stage("lines ApplyToOrderLines");
+                    if (bill.ApplyToOrderLines != null)
+                    {
+                        foreach (PurchaseInvoiceOrderLine line in bill.ApplyToOrderLines)
+                        {
+                            if (!IsRealLine(line)) { continue; }
+                            body.Lines.Add(MakeItemLine<BillLineBody>(
+                                line, "purchaseOrder", line.Quantity, line.UnitPrice,
+                                line.InventoryItemReference, line.JobReference, index));
+                        }
+                    }
+
+                    timer.Stage("lines WithholdRetainageLines");
+                    if (bill.WithholdRetainageLines != null)
+                    {
+                        foreach (PurchaseInvoiceRetainageLine line in bill.WithholdRetainageLines)
+                        {
+                            if (!IsRealLine(line)) { continue; }
+                            body.Lines.Add(MakeBaseLine<BillLineBody>(
+                                line, "retainage", line.JobReference, index));
+                        }
+                    }
+
+                    results.Add(body);
+                    timer.Stage("transaction enumeration MoveNext()");
                 }
 
-                results.Add(body);
+                LogFilterOutcome("BILLS", total, withoutTimestamp, results.Count, after, before, includeMissingTimestamps);
+                timer.Complete(results.Count);
+                return results;
             }
-
-            LogFilterOutcome("BILLS", total, withoutTimestamp, results.Count, after, before, includeMissingTimestamps);
-            return results;
         }
 
         /// <summary>
@@ -924,88 +1048,98 @@ namespace Sage50Connector.Helpers
 
             DateTime? after = ParseCutoff(updatedAt);
             DateTime? before = ParseCutoff(updatedBefore);
-            var timer = new ReadTimer("EXPENSES");
-            ReferenceIndex index = BuildReferenceIndex(accounts: true, customers: false, vendors: true);
-            timer.Mark("reference index built");
-
-            var payments = CompanyManager.Instance.CurrentCompany.Factories.PaymentFactory.List();
-            payments.Load();
-            timer.Mark("Sage Load() returned");
-
-            int total = 0;
-            int withoutTimestamp = 0;
-            int expenseLineCount = 0;
-            int invoiceLineCount = 0;
-            foreach (Payment payment in payments)
+            using (var timer = new ReadTimer("EXPENSES"))
             {
-                total++;
-                timer.Tick();
-                if (!HasTimestamp(payment.LastSavedAt))
-                {
-                    withoutTimestamp++;
-                }
-                if (!InModifiedWindow(payment.LastSavedAt, after, before, includeMissingTimestamps))
-                {
-                    continue;
-                }
+                ReferenceIndex index = BuildReferenceIndex(accounts: true, customers: false, vendors: true, timer: timer);
+                timer.Mark("reference index built");
+                timer.Stage("transaction Load()");
+                timer.Mark("Sage Load() starting");
 
-                var body = new ExpenseBody
-                {
-                    VendorID = index.Resolve(payment.VendorReference),
-                    Memo = payment.Memo,
-                    PaymentMethod = payment.PaymentMethod,
-                    DateSent = DateOnly(payment.DateSent),
-                    IsElectronicPayment = payment.IsElectronicPayment,
-                    ElectronicIdentifier = payment.ElectronicIdentifier,
-                    DiscountAccountID = index.Resolve(payment.DiscountAccountReference),
-                    MainAddress = MapAddress(payment.MainAddress),
-                };
-                MapTransactionHeader(body, payment, index);
+                var payments = CompanyManager.Instance.CurrentCompany.Factories.PaymentFactory.List();
+                payments.Load();
+                timer.Mark("Sage Load() returned");
+                timer.Stage("transaction enumeration MoveNext()");
 
-                if (payment.ApplyToExpenseLines != null)
+                int total = 0;
+                int withoutTimestamp = 0;
+                int expenseLineCount = 0;
+                int invoiceLineCount = 0;
+                foreach (Payment payment in payments)
                 {
-                    foreach (PaymentExpenseLine line in payment.ApplyToExpenseLines)
+                    total++;
+                    timer.Tick();
+                    if (!HasTimestamp(payment.LastSavedAt))
                     {
-                        if (!IsRealLine(line)) { continue; }
-                        body.ExpenseLines.Add(MakeItemLine<ExpenseLineBody>(
-                            line, "expense", line.Quantity, line.UnitPrice,
-                            line.InventoryItemReference, line.JobReference, index));
-                        expenseLineCount++;
+                        withoutTimestamp++;
                     }
-                }
-
-                if (payment.ApplyToInvoiceLines != null)
-                {
-                    foreach (PaymentInvoiceLine line in payment.ApplyToInvoiceLines)
+                    if (!InModifiedWindow(payment.LastSavedAt, after, before, includeMissingTimestamps))
                     {
-                        if (!IsRealLine(line))
+                        timer.Stage("transaction enumeration MoveNext()");
+                        continue;
+                    }
+
+                    var body = new ExpenseBody
+                    {
+                        VendorID = index.Resolve(payment.VendorReference),
+                        Memo = payment.Memo,
+                        PaymentMethod = payment.PaymentMethod,
+                        DateSent = DateOnly(payment.DateSent),
+                        IsElectronicPayment = payment.IsElectronicPayment,
+                        ElectronicIdentifier = payment.ElectronicIdentifier,
+                        DiscountAccountID = index.Resolve(payment.DiscountAccountReference),
+                        MainAddress = MapAddress(payment.MainAddress),
+                    };
+                    MapTransactionHeader(body, payment, index);
+
+                    timer.Stage("lines ApplyToExpenseLines");
+                    if (payment.ApplyToExpenseLines != null)
+                    {
+                        foreach (PaymentExpenseLine line in payment.ApplyToExpenseLines)
                         {
-                            continue;
+                            if (!IsRealLine(line)) { continue; }
+                            body.ExpenseLines.Add(MakeItemLine<ExpenseLineBody>(
+                                line, "expense", line.Quantity, line.UnitPrice,
+                                line.InventoryItemReference, line.JobReference, index));
+                            expenseLineCount++;
                         }
-                        var lineBody = new PaymentAppliedInvoiceLineBody
-                        {
-                            LineType = "appliedToBill",
-                            AmountPaid = line.AmountPaid,
-                            DiscountAmount = line.DiscountAmount,
-                            DiscountAccountID = index.Resolve(line.DiscountAccountReference),
-                            InvoiceGuid = ReferenceIndex.GuidOf(line.InvoiceReference),
-                            JobGuid = ReferenceIndex.GuidOf(line.JobReference),
-                        };
-                        MapLineBase(lineBody, line, index);
-                        body.InvoiceLines.Add(lineBody);
-                        invoiceLineCount++;
                     }
+
+                    timer.Stage("lines ApplyToInvoiceLines");
+                    if (payment.ApplyToInvoiceLines != null)
+                    {
+                        foreach (PaymentInvoiceLine line in payment.ApplyToInvoiceLines)
+                        {
+                            if (!IsRealLine(line))
+                            {
+                                continue;
+                            }
+                            var lineBody = new PaymentAppliedInvoiceLineBody
+                            {
+                                LineType = "appliedToBill",
+                                AmountPaid = line.AmountPaid,
+                                DiscountAmount = line.DiscountAmount,
+                                DiscountAccountID = index.Resolve(line.DiscountAccountReference),
+                                InvoiceGuid = ReferenceIndex.GuidOf(line.InvoiceReference),
+                                JobGuid = ReferenceIndex.GuidOf(line.JobReference),
+                            };
+                            MapLineBase(lineBody, line, index);
+                            body.InvoiceLines.Add(lineBody);
+                            invoiceLineCount++;
+                        }
+                    }
+
+                    results.Add(body);
+                    timer.Stage("transaction enumeration MoveNext()");
                 }
 
-                results.Add(body);
+                LogFilterOutcome("EXPENSES", total, withoutTimestamp, results.Count, after, before, includeMissingTimestamps);
+                global::Sage50Connector.Program.WriteToFile(
+                    "EXPENSES: " + expenseLineCount + " expense line(s) and "
+                        + invoiceLineCount + " applied-to-bill line(s) across "
+                        + results.Count + " payment(s).");
+                timer.Complete(results.Count);
+                return results;
             }
-
-            LogFilterOutcome("EXPENSES", total, withoutTimestamp, results.Count, after, before, includeMissingTimestamps);
-            global::Sage50Connector.Program.WriteToFile(
-                "EXPENSES: " + expenseLineCount + " expense line(s) and "
-                    + invoiceLineCount + " applied-to-bill line(s) across "
-                    + results.Count + " payment(s).");
-            return results;
         }
 
         /// <summary>
@@ -1030,92 +1164,102 @@ namespace Sage50Connector.Helpers
 
             DateTime? after = ParseCutoff(updatedAt);
             DateTime? before = ParseCutoff(updatedBefore);
-            var timer = new ReadTimer("INVOICE_PAYMENTS");
-            ReferenceIndex index = BuildReferenceIndex(accounts: true, customers: true, vendors: false);
-            timer.Mark("reference index built");
-
-            var receipts = CompanyManager.Instance.CurrentCompany.Factories.ReceiptFactory.List();
-            receipts.Load();
-            timer.Mark("Sage Load() returned");
-
-            int total = 0;
-            int withoutTimestamp = 0;
-            int invoiceLineCount = 0;
-            int salesLineCount = 0;
-            foreach (Receipt receipt in receipts)
+            using (var timer = new ReadTimer("INVOICE_PAYMENTS"))
             {
-                total++;
-                timer.Tick();
-                if (!HasTimestamp(receipt.LastSavedAt))
-                {
-                    withoutTimestamp++;
-                }
-                if (!InModifiedWindow(receipt.LastSavedAt, after, before, includeMissingTimestamps))
-                {
-                    continue;
-                }
+                ReferenceIndex index = BuildReferenceIndex(accounts: true, customers: true, vendors: false, timer: timer);
+                timer.Mark("reference index built");
+                timer.Stage("transaction Load()");
+                timer.Mark("Sage Load() starting");
 
-                var body = new InvoicePaymentBody
-                {
-                    CustomerID = index.Resolve(receipt.CustomerReference),
-                    ReceiptNumber = receipt.ReceiptNumber,
-                    PaymentMethod = receipt.PaymentMethod,
-                    DepositTicketID = receipt.DepositTicketID,
-                    SalesTaxAmount = receipt.SalesTaxAmount,
-                    DiscountAccountID = index.Resolve(receipt.DiscountAccountReference),
-                    SalesRepresentativeGuid = ReferenceIndex.GuidOf(receipt.SalesRepresentativeReference),
-                    SalesTaxCodeGuid = ReferenceIndex.GuidOf(receipt.SalesTaxCodeReference),
-                    MainAddress = MapAddress(receipt.MainAddress),
-                };
-                MapTransactionHeader(body, receipt, index);
+                var receipts = CompanyManager.Instance.CurrentCompany.Factories.ReceiptFactory.List();
+                receipts.Load();
+                timer.Mark("Sage Load() returned");
+                timer.Stage("transaction enumeration MoveNext()");
 
-                if (receipt.ApplyToInvoiceLines != null)
+                int total = 0;
+                int withoutTimestamp = 0;
+                int invoiceLineCount = 0;
+                int salesLineCount = 0;
+                foreach (Receipt receipt in receipts)
                 {
-                    foreach (ReceiptInvoiceLine line in receipt.ApplyToInvoiceLines)
+                    total++;
+                    timer.Tick();
+                    if (!HasTimestamp(receipt.LastSavedAt))
                     {
-                        if (!IsRealLine(line))
-                        {
-                            continue;
-                        }
-                        var lineBody = new ReceiptAppliedInvoiceLineBody
-                        {
-                            LineType = "appliedToInvoice",
-                            AmountPaid = line.AmountPaid,
-                            DiscountAmount = line.DiscountAmount,
-                            DiscountAccountID = index.Resolve(line.DiscountAccountReference),
-                            InvoiceGuid = ReferenceIndex.GuidOf(line.InvoiceReference),
-                            JobGuid = ReferenceIndex.GuidOf(line.JobReference),
-                        };
-                        MapLineBase(lineBody, line, index);
-                        body.InvoiceLines.Add(lineBody);
-                        invoiceLineCount++;
+                        withoutTimestamp++;
                     }
-                }
-
-                if (receipt.ApplyToSalesLines != null)
-                {
-                    foreach (ReceiptSalesLine line in receipt.ApplyToSalesLines)
+                    if (!InModifiedWindow(receipt.LastSavedAt, after, before, includeMissingTimestamps))
                     {
-                        if (!IsRealLine(line))
-                        {
-                            continue;
-                        }
-                        body.SalesLines.Add(MakeItemLine<ReceiptSalesLineBody>(
-                            line, "sales", line.Quantity, line.UnitPrice,
-                            line.InventoryItemReference, line.JobReference, index));
-                        salesLineCount++;
+                        timer.Stage("transaction enumeration MoveNext()");
+                        continue;
                     }
+
+                    var body = new InvoicePaymentBody
+                    {
+                        CustomerID = index.Resolve(receipt.CustomerReference),
+                        ReceiptNumber = receipt.ReceiptNumber,
+                        PaymentMethod = receipt.PaymentMethod,
+                        DepositTicketID = receipt.DepositTicketID,
+                        SalesTaxAmount = receipt.SalesTaxAmount,
+                        DiscountAccountID = index.Resolve(receipt.DiscountAccountReference),
+                        SalesRepresentativeGuid = ReferenceIndex.GuidOf(receipt.SalesRepresentativeReference),
+                        SalesTaxCodeGuid = ReferenceIndex.GuidOf(receipt.SalesTaxCodeReference),
+                        MainAddress = MapAddress(receipt.MainAddress),
+                    };
+                    MapTransactionHeader(body, receipt, index);
+
+                    timer.Stage("lines ApplyToInvoiceLines");
+                    if (receipt.ApplyToInvoiceLines != null)
+                    {
+                        foreach (ReceiptInvoiceLine line in receipt.ApplyToInvoiceLines)
+                        {
+                            if (!IsRealLine(line))
+                            {
+                                continue;
+                            }
+                            var lineBody = new ReceiptAppliedInvoiceLineBody
+                            {
+                                LineType = "appliedToInvoice",
+                                AmountPaid = line.AmountPaid,
+                                DiscountAmount = line.DiscountAmount,
+                                DiscountAccountID = index.Resolve(line.DiscountAccountReference),
+                                InvoiceGuid = ReferenceIndex.GuidOf(line.InvoiceReference),
+                                JobGuid = ReferenceIndex.GuidOf(line.JobReference),
+                            };
+                            MapLineBase(lineBody, line, index);
+                            body.InvoiceLines.Add(lineBody);
+                            invoiceLineCount++;
+                        }
+                    }
+
+                    timer.Stage("lines ApplyToSalesLines");
+                    if (receipt.ApplyToSalesLines != null)
+                    {
+                        foreach (ReceiptSalesLine line in receipt.ApplyToSalesLines)
+                        {
+                            if (!IsRealLine(line))
+                            {
+                                continue;
+                            }
+                            body.SalesLines.Add(MakeItemLine<ReceiptSalesLineBody>(
+                                line, "sales", line.Quantity, line.UnitPrice,
+                                line.InventoryItemReference, line.JobReference, index));
+                            salesLineCount++;
+                        }
+                    }
+
+                    results.Add(body);
+                    timer.Stage("transaction enumeration MoveNext()");
                 }
 
-                results.Add(body);
+                LogFilterOutcome("INVOICE_PAYMENTS", total, withoutTimestamp, results.Count, after, before, includeMissingTimestamps);
+                global::Sage50Connector.Program.WriteToFile(
+                    "INVOICE_PAYMENTS: " + invoiceLineCount + " applied-to-invoice line(s) and "
+                        + salesLineCount + " sales line(s) across "
+                        + results.Count + " receipt(s).");
+                timer.Complete(results.Count);
+                return results;
             }
-
-            LogFilterOutcome("INVOICE_PAYMENTS", total, withoutTimestamp, results.Count, after, before, includeMissingTimestamps);
-            global::Sage50Connector.Program.WriteToFile(
-                "INVOICE_PAYMENTS: " + invoiceLineCount + " applied-to-invoice line(s) and "
-                    + salesLineCount + " sales line(s) across "
-                    + results.Count + " receipt(s).");
-            return results;
         }
 
         /// <summary>
@@ -1387,7 +1531,7 @@ namespace Sage50Connector.Helpers
                 newVendor.Name = vendorBody.Name;
                 newVendor.Email = vendorBody.Email;
 
-                //newVendor.ExpenseAccountReference = vendorBody.ExpenseAccountReference; 
+                //newVendor.ExpenseAccountReference = vendorBody.ExpenseAccountReference;
                 try
                 {
                     newVendor.Save(); // Save the vendor to Sage 50
