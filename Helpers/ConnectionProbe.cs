@@ -1,4 +1,5 @@
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Net.Http;
 using System.Text;
@@ -70,7 +71,8 @@ namespace Sage50Connector.Helpers
 
         /// <summary>
         /// Maps an HTTP status to a user-facing probe result.
-        /// 401/403/404/410 mean the connection or token is gone.
+        /// 401/403/410 mean the connection or token is gone. A generic 404 can
+        /// come from an offline tunnel or gateway, not from Rutter.
         /// Anything else that is not a success is retryable: a 5xx, or an
         /// unexpected 4xx, is not proof the connection was revoked.
         /// </summary>
@@ -78,9 +80,47 @@ namespace Sage50Connector.Helpers
         {
             if (statusCode >= 200 && statusCode <= 299)
                 return RutterProbeResult.Alive(statusCode);
-            if (statusCode == 401 || statusCode == 403 || statusCode == 404 || statusCode == 410)
+            if (statusCode == 401 || statusCode == 403 || statusCode == 410)
                 return RutterProbeResult.Disconnected(statusCode);
             return RutterProbeResult.Unreachable(statusCode);
+        }
+
+        internal static RutterProbeResult FromResponse(int statusCode, string body)
+        {
+            JObject json = null;
+            try { json = JObject.Parse(body ?? string.Empty); }
+            catch (JsonException) { }
+
+            // The lab has reproduced credential errors arriving as HTTP 200.
+            // Recognize Rutter's auth envelope before accepting a success code.
+            if (json != null
+                && json["code"]?.Type == JTokenType.String
+                && json["message"]?.Type == JTokenType.String
+                && string.Equals((string)json["code"], "INVALID_REQUEST", StringComparison.Ordinal)
+                && ((string)json["message"] ?? string.Empty).StartsWith(
+                    "Invalid access token/connectionId pair", StringComparison.Ordinal))
+            {
+                return RutterProbeResult.Disconnected(statusCode);
+            }
+
+            RutterProbeResult result = FromHttpStatus(statusCode);
+            if (!result.IsAlive) return result;
+
+            // This is a mock LIST_FETCH probe, not a normal poll. HTML, an error
+            // envelope, NOOP, or an incomplete job is not proof of a live item.
+            if (json == null
+                || json["type"]?.Type != JTokenType.String
+                || (string)json["type"] != "LIST_FETCH"
+                || json["job_id"]?.Type != JTokenType.String
+                || string.IsNullOrWhiteSpace((string)json["job_id"])
+                || json["platform_entity"]?.Type != JTokenType.String
+                || string.IsNullOrWhiteSpace((string)json["platform_entity"])
+                || !(json["parameters"] is JObject)
+                || json["code"] != null || json["error_code"] != null || json["error_message"] != null)
+            {
+                return RutterProbeResult.Unreachable(statusCode);
+            }
+            return result;
         }
 
         public static async Task<RutterProbeResult> ProbeAsync(
@@ -92,7 +132,8 @@ namespace Sage50Connector.Helpers
             string url = baseUrl + "/versioned/ingest";
             try
             {
-                using (var client = new HttpClient())
+                using (var handler = new HttpClientHandler { AllowAutoRedirect = false })
+                using (var client = new HttpClient(handler))
                 {
                     client.Timeout = Timeout;
                     var request = new HttpRequestMessage(HttpMethod.Post, url);
@@ -111,7 +152,8 @@ namespace Sage50Connector.Helpers
 
                     using (HttpResponseMessage response = await client.SendAsync(request).ConfigureAwait(false))
                     {
-                        return FromHttpStatus((int)response.StatusCode);
+                        string body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        return FromResponse((int)response.StatusCode, body);
                     }
                 }
             }

@@ -456,6 +456,15 @@ namespace Sage50Connector.Ui
                 return;
             }
 
+            // Selecting a known disconnected row is how the user removes it.
+            // Do not start another switch or reset selection to the active row.
+            if (string.Equals(item.Connection.LastProbeResult,
+                ConnectionProbeResults.Disconnected, StringComparison.Ordinal))
+            {
+                UpdateRemoveButton();
+                return;
+            }
+
             removeCompanyButton.Enabled = false;
             DialogResult answer = MessageBox.Show(
                 "Switch syncing to " + item.Connection.CompanyName + "? "
