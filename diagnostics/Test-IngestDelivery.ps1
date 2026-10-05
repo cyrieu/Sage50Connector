@@ -14,6 +14,9 @@ $cache = $assembly.GetType('Sage50Connector.Helpers.JobFetchCache')
 $jobType = $assembly.GetType('Sage50Connector.ResponseObject')
 $parametersType = $assembly.GetType('Sage50Connector.Parameters')
 function Invoke-Async($name, [object[]]$arguments) {
+    for ($index = 0; $index -lt $arguments.Length; $index++) {
+        if ($null -ne $arguments[$index]) { $arguments[$index] = $arguments[$index].PSObject.BaseObject }
+    }
     $task = $program.GetMethod($name, $flags).Invoke($null, $arguments)
     $task.GetAwaiter().GetResult()
 }
@@ -27,8 +30,12 @@ function New-Fetch($id, $cursor) {
 }
 function Seed($id) {
     $records = New-Object 'System.Collections.Generic.List[object]'
-    $records.Add([pscustomobject]@{id='a'}); $records.Add([pscustomobject]@{id='b'})
-    $cache.GetMethod('Put').Invoke($null, @($id, 'BILLS', $records)) | Out-Null
+    $recordType = $assembly.GetType('Sage50Connector.Models.Rutter.BillBody')
+    foreach ($recordId in @('a', 'b')) {
+        $record = [Activator]::CreateInstance($recordType)
+        $record.ID = $recordId; $records.Add($record)
+    }
+    $cache.GetMethod('Put').Invoke($null, @($id, 'BILLS', $records.PSObject.BaseObject)) | Out-Null
 }
 function Has-Snapshot($id) {
     $arguments = [object[]]@($id, 'BILLS', $null)
@@ -50,7 +57,9 @@ $server = Start-Job -ArgumentList $Port, $plan, $transcript -ScriptBlock {
     $listener.Prefixes.Add("http://localhost:$port/"); $listener.Start()
     try {
         foreach ($response in $plan) {
-            $context = $listener.GetContext()
+            $waiting = $listener.GetContextAsync()
+            while (!$waiting.Wait(100)) { }
+            $context = $waiting.GetAwaiter().GetResult()
             $reader = New-Object IO.StreamReader($context.Request.InputStream)
             $body = $reader.ReadToEnd(); $reader.Dispose()
             @{body=$body; code=$response.code} | ConvertTo-Json -Compress | Add-Content $path
@@ -99,6 +108,9 @@ try {
     $program.GetMethod('ClearCachedCompanyState', $flags).Invoke($null, @()) | Out-Null
     Assert ($null -eq $program.GetField('nextReportedJob', $flags).GetValue($null) -and $null -eq $program.GetField('pendingReport', $flags).GetValue($null)) 'company switch clears retained report and returned job'
     Write-Output 'INGEST DELIVERY TESTS PASSED'
+} catch {
+    Write-Output $_.Exception.ToString()
+    throw
 } finally {
     Stop-Job $server -ErrorAction SilentlyContinue
     Receive-Job $server -ErrorAction SilentlyContinue | Out-Null

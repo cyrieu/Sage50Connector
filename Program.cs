@@ -556,7 +556,8 @@ namespace Sage50Connector
         /// <see cref="RunHeadless"/> loads sage50Config.json again.
         ///
         /// Audited statics: Program.Config, CompanyName, CompanyGuid,
-        /// DatabaseName, AccessKey, ConnectionId, comAuthorizationRetryRequested.
+        /// DatabaseName, AccessKey, ConnectionId, comAuthorizationRetryRequested,
+        /// pendingReport, nextReportedJob.
         /// JobFetchCache and SyncStatus are cleared by the caller. Sage session
         /// company pointers are cleared by Sage50Connector.Shutdown. There is no
         /// separate resolved-company cache; OpenCompany reads the statics above.
