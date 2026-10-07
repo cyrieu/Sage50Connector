@@ -53,6 +53,7 @@ namespace Sage50Connector.Helpers
             lock (Gate)
             {
                 ByJob.Clear();
+                InvoiceFetchCache.Clear();
             }
         }
     }

@@ -24,7 +24,8 @@ refresh scheduler (side or full)
        • return { data: [], nextCursor: null }   ← enqueue succeeded only
   ⋮  minutes later
 connector poll → selectNextJob (priority ASC, stage-gated) → job served
-  └─ JobFetchCache: Load Sage once per job_id, page from memory
+  └─ InvoiceWindowReader: bounded SDK date windows + one report page
+     Other entities: JobFetchCache, Load once per job_id, page from memory
   └─ handleIngestListFetchJob
        • first page → insert RefreshEntityRun (SIDE_ or FULL_REFRESH)
        • data pages → syncPrefetchedPlatformEntities(dispatchWebhooks: true)
@@ -62,6 +63,35 @@ still round-robin *within* a stage (cursor saves bump `updatedAt`).
 `JobFetchCache` holds the full filtered list for each open `job_id` in-process,
 so a multi-page job performs one Sage `Load()` rather than one per page. The
 connector deliberately does not persist accounting payloads to disk.
+
+Invoices use `InvoiceWindowReader` instead of the full DTO cache. A sorted SDK
+key inventory discovers the actual historical date extent, independent of current
+accounting periods. The reader starts with at most 31-day windows, splits windows
+containing more than 250 keys down to a single day, and discards each SDK list
+before mapping. Dense single days retain GUIDs only; individual factory loads
+map at most one report page (default 50, maximum 250 records). All four invoice
+line collections use the same mapper as the original full-fetch path.
+
+The original GUID membership is retained until traversal completes. A GUID
+fallback covers missing dates and invoices moved out of an already-read window;
+newly inserted GUIDs wait for the next sync. The local LastSavedAt predicate
+preserves null-timestamp inclusion and the half-open modification window. Job
+start_date/end_date remain inclusive document-date bounds. This does not freeze
+payloads against concurrent edits or detect hard deletes.
+
+Invoice cursors are opaque session tokens. An unacknowledged page is retained
+unchanged, and the accepted cursor advances only after HTTP acknowledgment.
+Company switches and Sage session release invalidate the reader; a subsequent
+saved cursor triggers the existing server restart protocol. A late upload
+acknowledgment remains safe after reader invalidation.
+
+Memory now scales with GUID inventories, reference indexes, and one invoice
+page rather than the complete hydrated invoice DTO collection. The initial SDK
+key load and reference-list loads still scale with company size, and a single
+invoice with many lines can still be large. The SDK's native allocations must be
+measured on the Windows lab; bounded DTO mapping alone is not proof that a very
+large customer dataset cannot exhaust a 32-bit process.
+
 
 If the process restarts after Rutter has saved a page cursor, the connector no
 longer mixes that cursor with a newly loaded live Sage list. It reports
@@ -107,7 +137,7 @@ implement that. Explicit vendor `DELETE` write jobs still work.
 
 - Link `POST /sage-50/link-verify` returns `initial_sync: { completed_entities, pending_entities, total, completed }`.
 - When every initial entity job is COMPLETED: `isReady`, `isHistoricalReady`, side-refresh enqueue, and **`INITIAL_UPDATE` webhook** (`createInitialUpdateWebhooksJob`).
-- Tray `SyncStatus` shows records done/total from the in-memory job list.
+- Tray `SyncStatus` shows records done/total for cached entities; invoice progress logs show accepted/page counts because its filtered total is not known until traversal completes.
 
 ## Still imperfect / follow-ups
 

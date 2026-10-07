@@ -45,6 +45,9 @@ namespace Sage50Connector.Helpers
         /// </summary>
         public void Shutdown()
         {
+            // Poll/report failures and authorization probes close Sage here too.
+            // Invoice readers capture this live company; never reuse them afterward.
+            InvoiceFetchCache.Clear();
             PeachtreeSession session = m_peachtreeSession;
             m_peachtreeSession = null;
             Company company = CurrentCompany;

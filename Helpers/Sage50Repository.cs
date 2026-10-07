@@ -831,83 +831,7 @@ namespace Sage50Connector.Helpers
                         continue;
                     }
 
-                    var body = new InvoiceBody
-                    {
-                        CustomerID = index.Resolve(invoice.CustomerReference),
-                        AmountDue = invoice.AmountDue,
-                        DateDue = DateOnly(invoice.DateDue),
-                        DiscountAmount = invoice.DiscountAmount,
-                        DiscountDate = DateOnly(invoice.DiscountDate),
-                        FreightAmount = invoice.FreightAmount,
-                        SalesTaxAmount = invoice.SalesTaxAmount,
-                        CustomerPurchaseOrderNumber = invoice.CustomerPurchaseOrderNumber,
-                        TermsDescription = invoice.TermsDescription,
-                        ShipDate = DateOnly(invoice.ShipDate),
-                        ShipVia = invoice.ShipVia,
-                        DropShip = invoice.DropShip,
-                        CustomerNote = invoice.CustomerNote,
-                        InternalNote = invoice.InternalNote,
-                        StatementNote = invoice.StatementNote,
-                        FreightAccountID = index.Resolve(invoice.FreightAccountReference),
-                        SalesRepresentativeGuid = ReferenceIndex.GuidOf(invoice.SalesRepresentativeReference),
-                        SalesTaxCodeGuid = ReferenceIndex.GuidOf(invoice.SalesTaxCodeReference),
-                        ShipToAddress = MapAddress(invoice.ShipToAddress),
-                    };
-                    MapTransactionHeader(body, invoice, index);
-
-                    // An invoice's lines live in whichever collection matches what it
-                    // was raised from, so all four are read and merged. Reading only
-                    // ApplyToSalesLines silently lost every line of the invoices
-                    // raised from sales orders.
-                    timer.Stage("lines ApplyToSalesLines");
-                    if (invoice.ApplyToSalesLines != null)
-                    {
-                        foreach (SalesInvoiceSalesLine line in invoice.ApplyToSalesLines)
-                        {
-                            if (!IsRealLine(line)) { continue; }
-                            body.Lines.Add(MakeItemLine<InvoiceLineBody>(
-                                line, "sales", line.Quantity, line.UnitPrice,
-                                line.InventoryItemReference, line.JobReference, index));
-                        }
-                    }
-
-                    timer.Stage("lines ApplyToSalesOrderLines");
-                    if (invoice.ApplyToSalesOrderLines != null)
-                    {
-                        foreach (SalesInvoiceSalesOrderLine line in invoice.ApplyToSalesOrderLines)
-                        {
-                            if (!IsRealLine(line)) { continue; }
-                            body.Lines.Add(MakeItemLine<InvoiceLineBody>(
-                                line, "salesOrder", line.Quantity, line.UnitPrice,
-                                line.InventoryItemReference, line.JobReference, index));
-                        }
-                    }
-
-                    timer.Stage("lines ApplyToProposalLines");
-                    if (invoice.ApplyToProposalLines != null)
-                    {
-                        foreach (SalesInvoiceProposalLine line in invoice.ApplyToProposalLines)
-                        {
-                            if (!IsRealLine(line)) { continue; }
-                            body.Lines.Add(MakeItemLine<InvoiceLineBody>(
-                                line, "proposal", line.Quantity, line.UnitPrice,
-                                line.InventoryItemReference, line.JobReference, index));
-                        }
-                    }
-
-                    // Retainage is money withheld, not a sale, and Sage gives these
-                    // lines no quantity, price or item at all.
-                    timer.Stage("lines WithholdRetainageLines");
-                    if (invoice.WithholdRetainageLines != null)
-                    {
-                        foreach (SalesInvoiceRetainageLine line in invoice.WithholdRetainageLines)
-                        {
-                            if (!IsRealLine(line)) { continue; }
-                            body.Lines.Add(MakeBaseLine<InvoiceLineBody>(
-                                line, "retainage", line.JobReference, index));
-                        }
-                    }
-
+                    var body = MapInvoice(invoice, index, timer);
                     results.Add(body);
                     timer.Stage("transaction enumeration MoveNext()");
                 }
@@ -916,6 +840,157 @@ namespace Sage50Connector.Helpers
                 timer.Complete(results.Count);
                 return results;
             }
+        }
+
+        private InvoiceBody MapInvoice(SalesInvoice invoice, ReferenceIndex index, ReadTimer timer = null)
+        {
+            var body = new InvoiceBody
+            {
+                CustomerID = index.Resolve(invoice.CustomerReference),
+                AmountDue = invoice.AmountDue,
+                DateDue = DateOnly(invoice.DateDue),
+                DiscountAmount = invoice.DiscountAmount,
+                DiscountDate = DateOnly(invoice.DiscountDate),
+                FreightAmount = invoice.FreightAmount,
+                SalesTaxAmount = invoice.SalesTaxAmount,
+                CustomerPurchaseOrderNumber = invoice.CustomerPurchaseOrderNumber,
+                TermsDescription = invoice.TermsDescription,
+                ShipDate = DateOnly(invoice.ShipDate),
+                ShipVia = invoice.ShipVia,
+                DropShip = invoice.DropShip,
+                CustomerNote = invoice.CustomerNote,
+                InternalNote = invoice.InternalNote,
+                StatementNote = invoice.StatementNote,
+                FreightAccountID = index.Resolve(invoice.FreightAccountReference),
+                SalesRepresentativeGuid = ReferenceIndex.GuidOf(invoice.SalesRepresentativeReference),
+                SalesTaxCodeGuid = ReferenceIndex.GuidOf(invoice.SalesTaxCodeReference),
+                ShipToAddress = MapAddress(invoice.ShipToAddress),
+            };
+            MapTransactionHeader(body, invoice, index);
+
+            // An invoice's lines live in whichever collection matches what it
+            // was raised from, so all four are read and merged. Reading only
+            // ApplyToSalesLines silently lost every line of the invoices
+            // raised from sales orders.
+            timer?.Stage("lines ApplyToSalesLines");
+            if (invoice.ApplyToSalesLines != null)
+            {
+                foreach (SalesInvoiceSalesLine line in invoice.ApplyToSalesLines)
+                {
+                    if (!IsRealLine(line)) { continue; }
+                    body.Lines.Add(MakeItemLine<InvoiceLineBody>(
+                        line, "sales", line.Quantity, line.UnitPrice,
+                        line.InventoryItemReference, line.JobReference, index));
+                }
+            }
+
+            timer?.Stage("lines ApplyToSalesOrderLines");
+            if (invoice.ApplyToSalesOrderLines != null)
+            {
+                foreach (SalesInvoiceSalesOrderLine line in invoice.ApplyToSalesOrderLines)
+                {
+                    if (!IsRealLine(line)) { continue; }
+                    body.Lines.Add(MakeItemLine<InvoiceLineBody>(
+                        line, "salesOrder", line.Quantity, line.UnitPrice,
+                        line.InventoryItemReference, line.JobReference, index));
+                }
+            }
+
+            timer?.Stage("lines ApplyToProposalLines");
+            if (invoice.ApplyToProposalLines != null)
+            {
+                foreach (SalesInvoiceProposalLine line in invoice.ApplyToProposalLines)
+                {
+                    if (!IsRealLine(line)) { continue; }
+                    body.Lines.Add(MakeItemLine<InvoiceLineBody>(
+                        line, "proposal", line.Quantity, line.UnitPrice,
+                        line.InventoryItemReference, line.JobReference, index));
+                }
+            }
+
+            // Retainage is money withheld, not a sale, and Sage gives these
+            // lines no quantity, price or item at all.
+            timer?.Stage("lines WithholdRetainageLines");
+            if (invoice.WithholdRetainageLines != null)
+            {
+                foreach (SalesInvoiceRetainageLine line in invoice.WithholdRetainageLines)
+                {
+                    if (!IsRealLine(line)) { continue; }
+                    body.Lines.Add(MakeBaseLine<InvoiceLineBody>(
+                        line, "retainage", line.JobReference, index));
+                }
+            }
+            return body;
+        }
+
+        /// <summary>Keep only keys and one report page, never a hydrated full invoice list.</summary>
+        internal InvoiceWindowReader OpenInvoiceReader(string companyName, string updatedAt,
+            string updatedBefore, bool includeMissingTimestamps, string startDate, string endDate)
+        {
+            EnsureCompanyConnected(companyName);
+            if (CurrentCompanyDesconnected) throw new InvalidOperationException("Sage company is disconnected.");
+            var company = CompanyManager.Instance.CurrentCompany;
+            var factory = company.Factories.SalesInvoiceFactory;
+            var after = ParseCutoff(updatedAt);
+            var before = ParseCutoff(updatedBefore);
+            var start = ParseCutoff(startDate)?.Date;
+            var end = ParseCutoff(endDate)?.Date;
+            var index = BuildReferenceIndex(true, true, false, true);
+            var inventory = CaptureInvoiceInventory();
+            return new InvoiceWindowReader(inventory.Item1, inventory.Item2, inventory.Item3,
+                (lower, upper) =>
+                {
+                    CheckInvoiceCompany(company);
+                    var list = factory.List();
+                    var modifiers = LoadModifiers.Create();
+                    modifiers.Filters = FilterExpression.AndAlso(
+                        FilterExpression.GreaterThanOrEqual(FilterExpression.Property("SalesInvoice.Date"), FilterExpression.Constant(lower)),
+                        FilterExpression.LessThan(FilterExpression.Property("SalesInvoice.Date"), FilterExpression.Constant(upper)));
+                    list.Load(modifiers);
+                    // Do not return the list or its entities: the SDK lazily retains hydrated rows.
+                    return list.Keys.Select(key => key.Guid).OrderBy(key => key).ToList();
+                },
+                key =>
+                {
+                    CheckInvoiceCompany(company);
+                    var invoice = factory.Load(EntityReference.Create<SalesInvoice>(key));
+                    if (invoice == null) throw new InvalidOperationException("An invoice disappeared during sync; retry the refresh.");
+                    if (!InModifiedWindow(invoice.LastSavedAt, after, before, includeMissingTimestamps)) return null;
+                    // Preserve the existing inclusive job date bounds and missing-date behavior.
+                    var date = invoice.Date;
+                    if (date != default(DateTime) && ((start.HasValue && date.Date < start.Value) ||
+                        (end.HasValue && date.Date > end.Value))) return null;
+                    return MapInvoice(invoice, index);
+                });
+        }
+
+        private static void CheckInvoiceCompany(Company company)
+        {
+            if (!ReferenceEquals(company, CompanyManager.Instance.CurrentCompany))
+                throw new InvalidOperationException("Sage session changed during invoice sync; retry the refresh.");
+        }
+
+        private Tuple<List<Guid>, DateTime?, DateTime?> CaptureInvoiceInventory()
+        {
+            var list = CompanyManager.Instance.CurrentCompany.Factories.SalesInvoiceFactory.List();
+            var modifiers = LoadModifiers.Create();
+            modifiers.Sorts.Add(SortExpression.OrderByAscending("SalesInvoice.Date"));
+            list.Load(modifiers);
+            var keys = list.Keys.ToList();
+            DateTime? first = null, last = null;
+            // Missing dates sort at the beginning. Read headers only to discover the
+            // actual historical extent; current accounting periods are not a history bound.
+            foreach (var key in keys)
+            {
+                var date = list[key].Date;
+                if (date != default(DateTime)) { first = date.Date; break; }
+            }
+            for (int i = keys.Count - 1; i >= 0; i--)
+            {
+                var date = list[keys[i]].Date;
+                if (date != default(DateTime)) { last = date.Date; break; }
+            }
+            return Tuple.Create(keys.Select(key => key.Guid).ToList(), first, last);
         }
 
         /// <summary>Purchase invoices — accounts payable.</summary>

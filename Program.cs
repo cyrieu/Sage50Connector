@@ -980,7 +980,7 @@ namespace Sage50Connector
                     consecutivePollFailures++;
                     Helpers.Sage50Connector.Instance.Shutdown();
                     Helpers.SyncStatus.Instance.SetOffline("Report not acknowledged by Rutter. Retrying without reloading Sage…");
-                    WriteToFile(DateTime.Now + ": Report delivery failed; retaining the report and Sage snapshot: " + ex.Message);
+                    WriteToFile(DateTime.Now + ": Report delivery failed; retaining the report; invoice reader will restart after Sage reconnects: " + ex.Message);
                     await DelayInterruptible(CalculateRetryDelay(consecutivePollFailures), cancellationToken);
                 }
                 WriteToFile(DateTime.Now + ": Process Ended.");
@@ -1211,11 +1211,68 @@ namespace Sage50Connector
             }
         }
 
+        private static async Task HandleInvoiceFetchJob(ResponseObject job, string accessKey, string companyName)
+        {
+            InvoiceWindowReader reader;
+            var cursor = job.parameters?.cursor;
+            if (!InvoiceFetchCache.TryGet(job.job_id, out reader))
+            {
+                if (!string.IsNullOrEmpty(cursor))
+                {
+                    await RequestListFetchRestartAsync(job, accessKey);
+                    return;
+                }
+                reader = Sage50Repository.Instance.OpenInvoiceReader(companyName,
+                    job.parameters?.updated_at, job.parameters?.updated_before,
+                    job.parameters?.include_missing_timestamps ?? true,
+                    job.parameters?.start_date, job.parameters?.end_date);
+                InvoiceFetchCache.Put(job.job_id, reader);
+            }
+            if (!reader.MatchesCursor(cursor))
+            {
+                InvoiceFetchCache.Remove(job.job_id);
+                await RequestListFetchRestartAsync(job, accessKey);
+                return;
+            }
+            var page = reader.ReadPage(cursor, job.parameters?.limit ?? 50);
+            int count = reader.AcceptedCount + page.Records.Count;
+            SyncStatus.Instance.SetSyncing(job.platform_entity, count, 0);
+            WriteToFile(DateTime.Now + ": Invoice window page size=" + page.Records.Count
+                + " read=" + count + " final=" + (page.NextCursor == null)
+                + " managedBytes=" + GC.GetTotalMemory(false)
+                + " privateBytes=" + System.Diagnostics.Process.GetCurrentProcess().PrivateMemorySize64);
+            var report = JObject.FromObject(new
+            {
+                connection = new { id = ConnectionId }, job_id = job.job_id,
+                type = job.type, platform_entity = job.platform_entity,
+                parameters = job.parameters, data = page.Records
+            }, JsonSerializer.Create(new JsonSerializerSettings
+            {
+                ContractResolver = new Newtonsoft.Json.Serialization.CamelCasePropertyNamesContractResolver()
+            }));
+            if (page.NextCursor != null) report["next_cursor"] = page.NextCursor;
+            await PostReportAsync(report.ToString(Formatting.None), accessKey, () =>
+            {
+                reader.Accept(page);
+                if (page.NextCursor == null)
+                {
+                    SyncStatus.Instance.SetEntitySynced(job.platform_entity, count);
+                    InvoiceFetchCache.Remove(job.job_id);
+                }
+            });
+        }
+
         private static async Task HandleListFetchJob(ResponseObject job, string AccessKey, string CompanyName)
         {
             WriteToFile(DateTime.Now + ": Handling LIST_FETCH job for " + job.platform_entity);
             try
             {
+                if (job.platform_entity == "INVOICES")
+                {
+                    await HandleInvoiceFetchJob(job, AccessKey, CompanyName);
+                    return;
+                }
+
                 var jsonSettings = new JsonSerializerSettings
                 {
                     ContractResolver = new Newtonsoft.Json.Serialization.CamelCasePropertyNamesContractResolver()
@@ -1314,6 +1371,7 @@ namespace Sage50Connector
             }
             catch (Exception ex) when (!(ex is ReportDeliveryException))
             {
+                if (job.platform_entity == "INVOICES") InvoiceFetchCache.Remove(job.job_id);
                 // "Authorization result = Pending" is not a crash, it is a person
                 // needing to click something in Sage. Say so plainly.
                 if (ex.Message.IndexOf("Pending", StringComparison.OrdinalIgnoreCase) >= 0)
@@ -1326,6 +1384,8 @@ namespace Sage50Connector
                 }
 
                 WriteToFile(DateTime.Now + ": Error handling LIST_FETCH job for " + job.platform_entity + ". Error: " + ex.Message);
+                if (job.platform_entity == "INVOICES")
+                    WriteToFile("Invoice read failure: " + ex + "; managedBytes=" + GC.GetTotalMemory(false));
                 // parameters must be echoed back even on the error path: Rutter
                 // validates a LIST_FETCH report against a schema that requires it,
                 // and rejects the report with a 500 when it is missing.

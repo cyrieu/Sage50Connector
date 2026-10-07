@@ -78,6 +78,7 @@
     <Compile Include="Helpers\ComCredentialStore.cs" />
     <Compile Include="Helpers\GeneralLedgerExporter.cs" />
     <Compile Include="Helpers\JobFetchCache.cs" />
+    <Compile Include="Helpers\InvoiceWindowReader.cs" />
     <Compile Include="Helpers\ReferenceIndex.cs" />
     <Compile Include="Helpers\Rfc4180CsvParser.cs" />
     <Compile Include="Helpers\RuntimeEnvironment.cs" />
