@@ -1386,6 +1386,8 @@ namespace Sage50Connector
                 WriteToFile(DateTime.Now + ": Error handling LIST_FETCH job for " + job.platform_entity + ". Error: " + ex.Message);
                 if (job.platform_entity == "INVOICES")
                     WriteToFile("Invoice read failure: " + ex + "; managedBytes=" + GC.GetTotalMemory(false));
+                if (job.platform_entity == "TRANSACTIONS")
+                    WriteToFile("General Ledger read failure: " + ex);
                 // parameters must be echoed back even on the error path: Rutter
                 // validates a LIST_FETCH report against a schema that requires it,
                 // and rejects the report with a 500 when it is missing.

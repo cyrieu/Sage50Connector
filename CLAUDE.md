@@ -645,8 +645,14 @@ Lines are ordered by `JournalRowIndex`.
 CSV parsing uses a whole-stream Sage-aware RFC 4180 parser
 (`Rfc4180CsvParser`) that handles quoted fields containing embedded newlines,
 doubled quotes, padding after closing quotes, and Sage's malformed terminal
-inch-mark form (`"Ficus Tree 22" - 26""`). `File.ReadAllLines` + per-line
-splitting would corrupt multi-line quoted descriptions.
+inch-mark form (`"Ficus Tree 22" - 26""`). Since 1.1.11 it also accepts
+padding before an opening quote and treats a quote inside an unquoted value as
+a literal (`12" PVC`); FatPipe's real ledger failed every export on that until
+then. Remaining structural errors report record, line, field, column name and a
+*masked* line (letters `X`/`x`, digits `9`) so the quoting pattern is visible
+without customer text reaching Rutter's logs. `File.ReadAllLines` + per-line
+splitting would corrupt multi-line quoted descriptions. Parser checks:
+`diagnostics/CsvParserTests.cs` (compiles standalone with the parser).
 
 Verified 2026-08-23 against the complete Bellwether raw export: an earlier
 literal-quote heuristic collapsed 1,933 physical posting rows into 1,768 parsed

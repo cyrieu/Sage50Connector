@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
@@ -16,6 +17,9 @@ namespace Sage50Connector.Helpers
     {
         private readonly TextReader _reader;
         private int _peekedChar = -2;
+        private int _recordNumber;
+        private int _lineNumber = 1;
+        private readonly StringBuilder _lineSoFar = new StringBuilder();
 
         internal Rfc4180CsvParser(TextReader reader)
         {
@@ -33,6 +37,7 @@ namespace Sage50Connector.Helpers
             int c = Peek();
             if (c < 0) return false;
 
+            _recordNumber++;
             var record = new List<string>();
             var field = new StringBuilder();
 
@@ -49,28 +54,32 @@ namespace Sage50Connector.Helpers
 
                 if (c == '"')
                 {
-                    // Per RFC 4180, a quoted field must start at the beginning
-                    // of the field. A quote inside a non-empty unquoted field is
-                    // a structural error, not the start of a quoted section.
-                    if (field.Length > 0)
+                    // Sage pads some values with spaces before the opening
+                    // quote, mirroring the padding it puts after the closing
+                    // quote. Padding-only content means this quote opens the
+                    // field; drop the padding.
+                    if (field.Length > 0 && IsPadding(field))
                     {
-                        throw new InvalidDataException(
-                            "CSV parse error: a double-quote appeared inside a " +
-                            "non-empty unquoted field. Per RFC 4180, a quote is " +
-                            "only valid at the start of a field. The General " +
-                            "Ledger export may be corrupted.");
+                        field.Clear();
+                    }
+                    else if (field.Length > 0)
+                    {
+                        // A quote inside an unquoted value is a literal (an inch
+                        // mark: 12" PVC). Sage only quotes values containing a
+                        // comma. Commas still delimit, so columns cannot shift.
+                        field.Append('"');
+                        continue;
                     }
                     // Quoted field — read until closing quote, handling doubled
                     // quotes as escaped quotes and embedded newlines literally.
+                    int quoteOpenedOnLine = _lineNumber;
                     while (true)
                     {
                         c = Read();
                         if (c < 0)
                         {
-                            throw new InvalidDataException(
-                                "CSV parse error: unterminated quoted field " +
-                                "(end of file reached before closing quote). " +
-                                "The General Ledger export may be corrupted.");
+                            throw Fail(record.Count,
+                                $"unterminated quoted field opened on line {quoteOpenedOnLine} (end of file reached before closing quote).");
                         }
                         if (c == '"')
                         {
@@ -158,10 +167,9 @@ namespace Sage50Connector.Helpers
                     // character so malformed rows cannot shift columns.
                     if (after >= 0 && after != ',' && after != '\r' && after != '\n')
                     {
-                        throw new InvalidDataException(
-                            $"CSV parse error: unexpected character '{(char)after}' " +
-                            "after closing quote and optional padding. Expected a comma, newline, or end " +
-                            "of file. The General Ledger export may be corrupted.");
+                        throw Fail(record.Count,
+                            $"unexpected character '{Mask((char)after)}' after closing quote and optional " +
+                            "padding. Expected a comma, newline, or end of file.");
                     }
                 }
                 else if (c == ',')
@@ -200,13 +208,99 @@ namespace Sage50Connector.Helpers
 
         private int Read()
         {
+            int c;
             if (_peekedChar != -2)
             {
-                int c = _peekedChar;
+                c = _peekedChar;
                 _peekedChar = -2;
-                return c;
             }
-            return _reader.Read();
+            else
+            {
+                c = _reader.Read();
+            }
+
+            // Track the physical line so a parse error can say where it is.
+            if (c == '\n')
+            {
+                _lineNumber++;
+                _lineSoFar.Clear();
+            }
+            else if (c >= 0 && c != '\r' && _lineSoFar.Length < MaxContext)
+            {
+                _lineSoFar.Append((char)c);
+            }
+            return c;
+        }
+
+        private const int MaxContext = 240;
+
+        private static bool IsPadding(StringBuilder field)
+        {
+            for (int i = 0; i < field.Length; i++)
+            {
+                if (field[i] != ' ' && field[i] != '\t') return false;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Build a parse error that pinpoints the record, physical line, column
+        /// and character, plus the line's *shape*: letters become X/x and digits
+        /// 9, while quotes, commas and whitespace are kept. That is enough to
+        /// see the quoting pattern Sage produced without putting customer
+        /// ledger text into Rutter's logs.
+        /// </summary>
+        private CsvParseException Fail(int column, string reason)
+        {
+            int position = _lineSoFar.Length; // 1-based index of the offending char
+            int line = _lineNumber;
+            var context = new StringBuilder(_lineSoFar.ToString());
+            int c;
+            while (context.Length < MaxContext && (c = Peek()) >= 0 && c != '\r' && c != '\n')
+            {
+                context.Append((char)Read());
+            }
+            return new CsvParseException(_recordNumber, line, column, position, Mask(context.ToString()), reason);
+        }
+
+        internal static string Mask(string text)
+        {
+            var masked = new StringBuilder(text.Length);
+            foreach (char ch in text) masked.Append(Mask(ch));
+            return masked.ToString();
+        }
+
+        internal static char Mask(char ch)
+        {
+            if (char.IsDigit(ch)) return '9';
+            if (char.IsLetter(ch)) return char.IsUpper(ch) ? 'X' : 'x';
+            return ch;
+        }
+    }
+
+    /// <summary>
+    /// A CSV structural error with its location. <see cref="Column"/> is the
+    /// zero-based field index; the GL exporter maps it to the header name.
+    /// </summary>
+    internal sealed class CsvParseException : Exception
+    {
+        internal int Record { get; }
+        internal int Line { get; }
+        internal int Column { get; }
+        internal int Position { get; }
+        internal string MaskedLine { get; }
+        internal string Reason { get; }
+
+        internal CsvParseException(int record, int line, int column, int position, string maskedLine, string reason)
+            : base($"CSV parse error at record {record} (line {line}), field {column + 1}, char {position}: {reason} "
+                + $"Masked line: [{maskedLine}]")
+        {
+            Record = record;
+            Line = line;
+            Column = column;
+            Position = position;
+            MaskedLine = maskedLine;
+            Reason = reason;
         }
     }
 }

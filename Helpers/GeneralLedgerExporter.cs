@@ -299,9 +299,20 @@ namespace Sage50Connector.Helpers
             using (var reader = new StreamReader(csvPath, Encoding.UTF8))
             {
                 var parser = new Rfc4180CsvParser(reader);
-                while (parser.ReadRecord(out string[] fields))
+                try
                 {
-                    records.Add(fields);
+                    while (parser.ReadRecord(out string[] fields))
+                    {
+                        records.Add(fields);
+                    }
+                }
+                catch (CsvParseException ex)
+                {
+                    string column = records.Count > 0 && ex.Column < records[0].Length
+                        ? records[0][ex.Column]
+                        : "unknown";
+                    throw new InvalidDataException(
+                        ex.Message + $" Column: {column}. The General Ledger export may be corrupted.", ex);
                 }
             }
             return records;
