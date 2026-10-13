@@ -264,6 +264,8 @@ namespace Sage50Connector.Helpers
                 InvokeMethod(expType, exporter, "Export");
 
                 List<GlTransactionLineBody> allLines = ParseCsv(csvPath);
+                string unordered = SummarizeZeroPostingOrder(allLines);
+                if (unordered != null) global::Sage50Connector.Program.WriteToFile(unordered);
                 List<GlTransactionLineBody> filtered = ApplyDateWindow(allLines, startDt, endDt);
                 List<GlTransactionLineBody> posting = filtered
                     .Where(l => l.IncludeInGL)
@@ -382,15 +384,17 @@ namespace Sage50Connector.Helpers
             string idText = ReadField(fields, headerMap, "GUID", "GL GUID");
 
             // Fail closed on malformed required fields — do not silently default
-            // to 0/false and risk grouping corrupt rows under gl:0.
+            // a missing value to 0/false. A literal 0 is different: Sage itself
+            // writes posting order 0 on some rows of real company files
+            // (FatPipe, 2026-10-13), so 0 is accepted and GroupByPostingOrder
+            // keeps each such row as its own transaction instead of merging.
             if (string.IsNullOrWhiteSpace(journalPostOrderText))
                 throw new InvalidDataException(
                     $"GL row {rowNumber}: JournalPostOrder is missing or blank. " +
                     "Cannot group rows without a posting order.");
-            if (!long.TryParse(journalPostOrderText, out long journalPostOrder) || journalPostOrder <= 0)
+            if (!long.TryParse(journalPostOrderText, out long journalPostOrder) || journalPostOrder < 0)
                 throw new InvalidDataException(
-                    $"GL row {rowNumber}: JournalPostOrder '{journalPostOrderText}' is not a positive integer. " +
-                    "A zero or negative posting order would corrupt grouping.");
+                    $"GL row {rowNumber}: JournalPostOrder '{journalPostOrderText}' is not a non-negative integer.");
 
             if (string.IsNullOrWhiteSpace(journalRowIndexText))
                 throw new InvalidDataException(
@@ -468,11 +472,37 @@ namespace Sage50Connector.Helpers
             };
         }
 
+        /// <summary>
+        /// Describe the rows Sage exported with posting order 0, without any
+        /// ledger text: how many, which journal codes, how many post to the GL,
+        /// and their date range. Null when there are none. We have not yet seen
+        /// what Sage means by these rows (beginning balances and purged history
+        /// are the likely candidates), so this is logged on every export.
+        /// </summary>
+        internal static string SummarizeZeroPostingOrder(List<GlTransactionLineBody> lines)
+        {
+            var zero = lines.Where(l => l.JournalPostOrder == 0).ToList();
+            if (zero.Count == 0) return null;
+            string codes = string.Join(", ", zero
+                .GroupBy(l => string.IsNullOrWhiteSpace(l.JournalTypeCode) ? "(blank)" : l.JournalTypeCode.Trim())
+                .OrderBy(g => g.Key, StringComparer.Ordinal)
+                .Select(g => g.Key + "=" + g.Count()));
+            var dates = zero.Select(l => l.Date).OrderBy(d => d, StringComparer.Ordinal).ToList();
+            return "TRANSACTIONS: " + zero.Count + " GL row(s) have posting order 0 and are sent as single-line transactions. "
+                + "includeInGL=" + zero.Count(l => l.IncludeInGL) + "/" + zero.Count
+                + "; journal codes: " + codes
+                + "; dates " + dates[0] + " to " + dates[dates.Count - 1] + ".";
+        }
+
         internal static List<GlTransactionBody> GroupByPostingOrder(List<GlTransactionLineBody> postingRows)
         {
+            // Posting order 0 carries no grouping information, so grouping on it
+            // would merge unrelated rows into one bogus "gl:0" transaction. Each
+            // such row stands alone, keyed by its own GL GUID.
             var groups = postingRows
-                .GroupBy(r => r.JournalPostOrder)
-                .OrderBy(g => g.Key);
+                .GroupBy(r => r.JournalPostOrder > 0 ? "gl:" + r.JournalPostOrder : "gl:0:" + r.ID)
+                .OrderBy(g => g.First().JournalPostOrder)
+                .ThenBy(g => g.Key, StringComparer.Ordinal);
 
             var transactions = new List<GlTransactionBody>();
             foreach (var group in groups)
@@ -500,8 +530,8 @@ namespace Sage50Connector.Helpers
 
                 transactions.Add(new GlTransactionBody
                 {
-                    ID = "gl:" + group.Key,
-                    JournalPostOrder = group.Key,
+                    ID = group.Key,
+                    JournalPostOrder = first.JournalPostOrder,
                     Date = first.Date,
                     Amount = totalAmount,
                     JournalTypeCodes = typeCodes,

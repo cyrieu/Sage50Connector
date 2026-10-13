@@ -700,6 +700,13 @@ Operating constraints (from the 2026-08-20 spike against Bellwether):
   Date, TransactionAmount, or IncludeInGL is missing, blank, or unparseable. Unknown
   journal codes preserve `journalTypeCode` but leave numeric `journalType`
   null rather than defaulting to 0 (General).
+- Posting order **0** is real Sage data, not a missing value: FatPipe's company
+  file exports some rows with `JournalPostOrder` 0 (seen 2026-10-13; what Sage
+  means by them is not yet known). Since 1.1.12 each such row is its own
+  transaction with id `gl:0:{GL GUID}` instead of failing the export, and every
+  export logs a text-free summary (count, includeInGL, journal codes, date
+  range). Negative posting orders still fail. Reproduction:
+  `diagnostics/Test-GlZeroPostingOrder.ps1` (32-bit PowerShell on the VM).
 - GL rows have no `LastSavedAt`. The backend passes temporal bounds as
   `start_date`/`end_date` (transaction-date window) for historical initial
   batches, not `updated_at`/`updated_before` (LastSavedAt window). Recurring
