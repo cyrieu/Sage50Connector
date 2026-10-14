@@ -37,7 +37,7 @@ $targets = @()
 foreach ($po in $multi[0..2]) { $targets += $orders[$po][0] }   # one row from each of three entries
 $targets += $orders[$multi[3]][0..1]                             # two rows from the same entry
 foreach ($i in $targets) { $lines[$i] = $lines[$i] -replace '^\d+,', '0,' }
-$mod = Join-Path $WorkDir 'zero-postorder.csv'
+$mod = [string](Join-Path $WorkDir 'zero-postorder.csv')
 [IO.File]::WriteAllLines($mod, $lines)
 
 $rows = $parse.Invoke($null, @($mod))
@@ -60,7 +60,7 @@ $lineTotal = ($tx | ForEach-Object { $_.Lines.Count } | Measure-Object -Sum).Sum
 Check ($lineTotal -eq $base.Count) "no row lost or duplicated ($lineTotal lines)"
 Check ($tx.Count -eq $baseGroups.Count + $targets.Count) 'other transactions unchanged'
 
-$neg = Join-Path $WorkDir 'negative-postorder.csv'
+$neg = [string](Join-Path $WorkDir 'negative-postorder.csv')
 $lines[$targets[0]] = $lines[$targets[0]] -replace '^0,', '-1,'
 [IO.File]::WriteAllLines($neg, $lines)
 try { $parse.Invoke($null, @($neg)) | Out-Null; throw 'FAIL: negative posting order accepted' }
