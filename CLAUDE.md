@@ -695,9 +695,16 @@ Operating constraints (from the 2026-08-20 spike against Bellwether):
   references is consistent (zero references on any line); mixed blank/nonblank
   references or dates is NOT consistent. Multiple journal type codes are
   expected and do NOT make a group inconsistent.
-- Fail-closed on malformed GL data: the connector throws an actionable error
-  (with row number) if JournalPostOrder, JournalRowIndex, GL GUID, GLAccountId,
-  Date, TransactionAmount, or IncludeInGL is missing, blank, or unparseable. Unknown
+- Malformed GL rows are skipped, not fatal (since 1.1.13): a row whose
+  JournalPostOrder, JournalRowIndex, GL GUID, GLAccountId, Date,
+  TransactionAmount, or IncludeInGL is missing, blank, or unparseable is dropped
+  and the rest of the ledger syncs. Each export logs
+  `TRANSACTIONS: skipped N invalid GL row(s)` grouped by reason with values
+  masked and the first row numbers. Every sync re-exports the whole ledger, so a
+  row fixed in Sage arrives on the next one. The export still fails on a
+  structural CSV error, or when more than half the rows are invalid (a format
+  change, not bad rows). `ParseCsv(path)` without a skip list stays strict for
+  tests. Reproduction: `diagnostics/Test-GlSkipInvalidRows.ps1`. Unknown
   journal codes preserve `journalTypeCode` but leave numeric `journalType`
   null rather than defaulting to 0 (General).
 - Posting order **0** is real Sage data, not a missing value: FatPipe's company

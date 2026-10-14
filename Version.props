@@ -9,7 +9,7 @@
 -->
 <Project>
   <PropertyGroup>
-    <Sage50ConnectorVersion>1.1.12.0</Sage50ConnectorVersion>
-    <Sage50ConnectorMsiVersion>1.1.12</Sage50ConnectorMsiVersion>
+    <Sage50ConnectorVersion>1.1.13.0</Sage50ConnectorVersion>
+    <Sage50ConnectorMsiVersion>1.1.13</Sage50ConnectorMsiVersion>
   </PropertyGroup>
 </Project>

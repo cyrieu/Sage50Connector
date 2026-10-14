@@ -20,7 +20,7 @@ $group = $gl.GetMethod('GroupByPostingOrder', $flags)
 $summ = $gl.GetMethod('SummarizeZeroPostingOrder', $flags)
 
 # Baseline: unmodified export.
-$base = $parse.Invoke($null, @($Fixture))
+$base = $parse.Invoke($null, @($Fixture, $null))
 $baseGroups = $group.Invoke($null, [object[]]@(,$base))
 "baseline rows=$($base.Count) transactions=$($baseGroups.Count)"
 Check ($summ.Invoke($null, [object[]]@(,$base)) -eq $null) 'no summary when nothing has posting order 0'
@@ -40,7 +40,7 @@ foreach ($i in $targets) { $lines[$i] = $lines[$i] -replace '^\d+,', '0,' }
 $mod = [string](Join-Path $WorkDir 'zero-postorder.csv')
 [IO.File]::WriteAllLines($mod, $lines)
 
-$rows = $parse.Invoke($null, @($mod))
+$rows = $parse.Invoke($null, @($mod, $null))
 Check ($rows.Count -eq $base.Count) "parse keeps every row ($($rows.Count))"
 $zero = @($rows | Where-Object { $_.JournalPostOrder -eq 0 })
 Check ($zero.Count -eq $targets.Count) "$($targets.Count) rows carry posting order 0"
@@ -63,7 +63,7 @@ Check ($tx.Count -eq $baseGroups.Count + $targets.Count) 'other transactions unc
 $neg = [string](Join-Path $WorkDir 'negative-postorder.csv')
 $lines[$targets[0]] = $lines[$targets[0]] -replace '^0,', '-1,'
 [IO.File]::WriteAllLines($neg, $lines)
-try { $parse.Invoke($null, @($neg)) | Out-Null; throw 'FAIL: negative posting order accepted' }
+try { $parse.Invoke($null, @($neg, $null)) | Out-Null; throw 'FAIL: negative posting order accepted' }
 catch { Check ($_.Exception.InnerException.Message -like '*not a non-negative integer*') 'negative posting order still fails closed' }
 
 'GL ZERO POSTING ORDER TESTS PASSED'

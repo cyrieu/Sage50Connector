@@ -12,7 +12,7 @@ if (-not $source.Contains($needle)) { throw 'Entry point did not match.' }
 [IO.File]::WriteAllText($program,$source.Replace($needle,$insert),(New-Object Text.UTF8Encoding($true)))
 $exporter=Join-Path $Destination 'Helpers\GeneralLedgerExporter.cs'
 $source=[IO.File]::ReadAllText($exporter)
-$needle='List<GlTransactionLineBody> allLines = ParseCsv(csvPath);'
+$needle='List<GlTransactionLineBody> allLines = ParseCsv(csvPath, skippedRows);'
 $insert='if (Diagnostics.GlExportDiagnostic.CapturePath != null) { File.Copy(csvPath, Diagnostics.GlExportDiagnostic.CapturePath, false); return new List<GlTransactionBody>(); }' + "`r`n                " + $needle
 if (-not $source.Contains($needle)) { throw 'CSV capture hook did not match.' }
 [IO.File]::WriteAllText($exporter,$source.Replace($needle,$insert),(New-Object Text.UTF8Encoding($true)))

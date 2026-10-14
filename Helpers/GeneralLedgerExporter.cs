@@ -263,7 +263,10 @@ namespace Sage50Connector.Helpers
                 // and apply the half-open date window locally after parsing.
                 InvokeMethod(expType, exporter, "Export");
 
-                List<GlTransactionLineBody> allLines = ParseCsv(csvPath);
+                var skippedRows = new List<string>();
+                List<GlTransactionLineBody> allLines = ParseCsv(csvPath, skippedRows);
+                string skipped = SummarizeSkippedRows(skippedRows, allLines.Count);
+                if (skipped != null) global::Sage50Connector.Program.WriteToFile(skipped);
                 string unordered = SummarizeZeroPostingOrder(allLines);
                 if (unordered != null) global::Sage50Connector.Program.WriteToFile(unordered);
                 List<GlTransactionLineBody> filtered = ApplyDateWindow(allLines, startDt, endDt);
@@ -320,7 +323,17 @@ namespace Sage50Connector.Helpers
             return records;
         }
 
-        internal static List<GlTransactionLineBody> ParseCsv(string csvPath)
+        /// <summary>
+        /// Parse and validate every GL row. Without <paramref name="skippedRows"/>
+        /// the first invalid row throws. With it, an invalid row is skipped and
+        /// its error recorded, so one bad row cannot block the whole ledger;
+        /// every sync re-exports the full ledger, so a row fixed in Sage arrives
+        /// on the next one. Two limits still fail the export: a structural CSV
+        /// error (column positions after it cannot be trusted), and more than
+        /// half the rows invalid, which means a format change rather than a few
+        /// bad rows.
+        /// </summary>
+        internal static List<GlTransactionLineBody> ParseCsv(string csvPath, List<string> skippedRows = null)
         {
             List<string[]> records = ParseCsvRecords(csvPath);
             if (records.Count < 2) return new List<GlTransactionLineBody>();
@@ -332,7 +345,25 @@ namespace Sage50Connector.Helpers
             for (int i = 1; i < records.Count; i++)
             {
                 if (records[i].Length == 1 && string.IsNullOrEmpty(records[i][0])) continue;
-                result.Add(MapRow(records[i], headerMap, i + 1));
+                if (skippedRows == null)
+                {
+                    result.Add(MapRow(records[i], headerMap, i + 1));
+                    continue;
+                }
+                try
+                {
+                    result.Add(MapRow(records[i], headerMap, i + 1));
+                }
+                catch (InvalidDataException ex)
+                {
+                    skippedRows.Add(ex.Message);
+                }
+            }
+            if (skippedRows != null && skippedRows.Count > result.Count)
+            {
+                throw new InvalidDataException(
+                    SummarizeSkippedRows(skippedRows, result.Count)
+                    + " More than half the rows are invalid, so the export format has probably changed; nothing was sent.");
             }
             return result;
         }
@@ -470,6 +501,31 @@ namespace Sage50Connector.Helpers
                     "DateCleared", "Date Cleared", "Cleared Date"),
                 IncludeInGL = includeInGL,
             };
+        }
+
+        /// <summary>
+        /// Group skipped-row errors by reason, with the offending values masked
+        /// (they are ledger data), and list the first few row numbers of each.
+        /// Null when nothing was skipped.
+        /// </summary>
+        internal static string SummarizeSkippedRows(List<string> skippedRows, int keptRows)
+        {
+            if (skippedRows == null || skippedRows.Count == 0) return null;
+            var reasons = skippedRows
+                .Select(m =>
+                {
+                    var match = System.Text.RegularExpressions.Regex.Match(m, @"^GL row (\d+): (.*)$");
+                    string row = match.Success ? match.Groups[1].Value : "?";
+                    string reason = match.Success ? match.Groups[2].Value : m;
+                    reason = System.Text.RegularExpressions.Regex.Replace(reason, "'[^']*'", "'...'");
+                    return new { row, reason };
+                })
+                .GroupBy(x => x.reason)
+                .OrderByDescending(g => g.Count())
+                .Select(g => g.Count() + " x " + g.Key + " (rows " + string.Join(", ", g.Take(5).Select(x => x.row))
+                    + (g.Count() > 5 ? ", ..." : "") + ")");
+            return "TRANSACTIONS: skipped " + skippedRows.Count + " invalid GL row(s), kept " + keptRows + ". "
+                + string.Join(" | ", reasons);
         }
 
         /// <summary>
