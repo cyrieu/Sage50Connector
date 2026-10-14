@@ -34,7 +34,7 @@ $bad = [string](Join-Path $WorkDir 'three-invalid.csv')
 try { $parse.Invoke($null, @($bad, $null)) | Out-Null; throw 'FAIL: strict parse accepted invalid rows' }
 catch { Check ($_.Exception.InnerException -ne $null) 'strict parse (no skip list) still throws' }
 
-$skipped = New-Object 'System.Collections.Generic.List[string]'
+$skipped = [System.Collections.Generic.List[string]]::new()
 $rows = $parse.Invoke($null, @($bad, $skipped))
 Check ($skipped.Count -eq 3) 'three invalid rows skipped'
 Check ($rows.Count -eq $base.Count - 3) "every other row kept ($($rows.Count))"
@@ -50,7 +50,7 @@ Check (($ids | Select-Object -Unique).Count -eq $ids.Count) 'transaction ids are
 foreach ($i in $plain) { Corrupt $i 8 'Acme12x' }
 $most = [string](Join-Path $WorkDir 'mostly-invalid.csv')
 [IO.File]::WriteAllLines($most, $lines)
-$skipped = New-Object 'System.Collections.Generic.List[string]'
+$skipped = [System.Collections.Generic.List[string]]::new()
 try { $parse.Invoke($null, @($most, $skipped)) | Out-Null; throw 'FAIL: mostly-invalid export accepted' }
 catch { Check ($_.Exception.InnerException.Message -like '*More than half the rows are invalid*') 'mostly-invalid export still fails' }
 
